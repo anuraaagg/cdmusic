@@ -103,6 +103,9 @@ final class MusicPlayerViewModel: ObservableObject {
     @Published var showVolumeHUD: Bool   = false
     @Published var skinFlash:     Bool   = false
 
+    /// Figma `360:2854` — 0 = tray closed (`305:2722`), 1 = slid left, disc exposed.
+    @Published var caseSlideFraction: CGFloat = 0
+
     // Crate / panel slide
     @Published var crateIsOpen:       Bool = false
     @Published var panelDragOffset:   CGFloat = 0
@@ -500,6 +503,33 @@ final class MusicPlayerViewModel: ObservableObject {
         isScratching = false
         if isPlaying {
             rotationVelocity = scratchVelocity
+        }
+    }
+
+    var isHeroDiscInteractive: Bool {
+        caseSlideFraction >= FigmaTheme.CD3052722.discInteractThreshold
+    }
+
+    func closeCaseTray(animated: Bool = true) {
+        guard caseSlideFraction > 0.001 else { return }
+        if animated {
+            withAnimation(CaseTrayPhysics.snapAnimation) {
+                caseSlideFraction = 0
+            }
+        } else {
+            caseSlideFraction = 0
+        }
+        selectionChanged()
+    }
+
+    func openCaseTray(animated: Bool = true) {
+        guard caseSlideFraction < 0.999 else { return }
+        if animated {
+            withAnimation(CaseTrayPhysics.snapAnimation) {
+                caseSlideFraction = 1
+            }
+        } else {
+            caseSlideFraction = 1
         }
     }
 

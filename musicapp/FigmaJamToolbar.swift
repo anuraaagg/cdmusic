@@ -28,19 +28,21 @@ struct FigmaJamToolbar: View {
             Spacer(minLength: m.clusterGapMin * s)
 
             FigmaJamDialButton(scale: s, isPlaying: isPlaying, action: onDialTap)
+                .frame(width: clusterH, height: clusterH)
 
             FigmaJamStatusPills(
                 statusText: statusText,
                 counterText: counterText,
                 scale: s
             )
+            .frame(height: clusterH)
 
             Spacer(minLength: m.clusterGapMin * s)
 
             FigmaJamRightRail(scale: s)
                 .frame(width: railW, height: clusterH)
         }
-        .frame(height: rowH)
+        .frame(height: rowH, alignment: .center)
         .frame(maxWidth: .infinity)
     }
 }

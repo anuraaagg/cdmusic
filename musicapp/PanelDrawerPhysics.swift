@@ -74,3 +74,25 @@ enum PanelDrawerPhysics {
         return limit * (1 - exp(-overshoot * 5.4))
     }
 }
+
+// MARK: - Hero CD case tray (`360:2854`)
+
+/// Horizontal slide — 0 = closed, 1 = open. Linear drag, hard clamp, 50% snap (no rubber band).
+enum CaseTrayPhysics {
+
+    static let commitThreshold: CGFloat = 0.5
+
+    /// 1:1 finger tracking, clamped 0…1.
+    static func dragFraction(anchor: CGFloat, horizontalTranslation: CGFloat, slideDistance: CGFloat) -> CGFloat {
+        guard slideDistance > 0 else { return anchor }
+        let delta = -horizontalTranslation / slideDistance
+        return min(1, max(0, anchor + delta))
+    }
+
+    /// Release past 50% → 1, otherwise → 0.
+    static func snapTarget(fraction: CGFloat) -> CGFloat {
+        fraction >= commitThreshold ? 1 : 0
+    }
+
+    static let snapAnimation: Animation = .easeOut(duration: 0.28)
+}

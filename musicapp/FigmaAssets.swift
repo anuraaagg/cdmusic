@@ -4,6 +4,8 @@ import Foundation
 enum FigmaImage {
     static let cdDisc = "cd_disc"
     static let cdCoverArt = "cd_cover_art"
+    /// Figma `360:2859` — slides left; uses cover art until a case-only export lands.
+    static let cdCaseTray = "cd_cover_art"
     static let cdCaseSpine = "cd_case_spine"
     static let asterisk = "figma_asterisk"
     static let cratesLogo = "crates_logo"   // Figma `305:2745` Press wordmark (PNG)

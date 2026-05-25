@@ -122,7 +122,9 @@ struct FigmaControlPanel: View {
     }
 
     private var jamToolbar: some View {
-        let drawerJam = vm.jamToolbarForDrawer(revealFraction: revealFraction)
+        // Freeze JAM copy at drag start so threshold crossovers don't reflow the row mid-gesture.
+        let reveal = isDragging ? dragAnchor : revealFraction
+        let drawerJam = vm.jamToolbarForDrawer(revealFraction: reveal)
         return FigmaJamToolbar(
             statusText: scrubLabel ?? drawerJam.status,
             counterText: drawerJam.counter,

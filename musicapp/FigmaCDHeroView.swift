@@ -2,14 +2,7 @@ import SwiftUI
 
 // MARK: - FigmaCDHeroView
 //
-// Top section — Figma `305:3028` + CD jewel case `305:2722`.
-//
-//   48 pt safe area + 8 pt inset (applied by host)
-//   + 340 × 340 case slot (`305:2722`)
-//   + 8 pt gap
-//   + 362 × 38 meta strip
-//
-// FIXED-SIZE: CD and strip never scale with screen width.
+// Top section — Figma `305:3028` + CD jewel case `305:2722` / slide-open `360:2854`.
 
 struct FigmaCDHeroView: View {
     @ObservedObject var vm: MusicPlayerViewModel
@@ -17,11 +10,8 @@ struct FigmaCDHeroView: View {
 
     var body: some View {
         VStack(spacing: FigmaTheme.heroMetaGap) {
-            FigmaCDJewelCase(
-                cdAngle: vm.cdAngle,
-                discArtwork: vm.heroDiscArtwork,
-                discPlaceholder: vm.heroDiscPlaceholder
-            )
+            FigmaCDJewelCase(vm: vm)
+                .frame(width: FigmaTheme.heroCDSize, height: FigmaTheme.heroCDSize)
 
             FigmaHeroMetaStrip(
                 songTitle: vm.heroTrackTitle,
@@ -33,35 +23,103 @@ struct FigmaCDHeroView: View {
                     vm.showSettings = true
                 }
             )
+            .animation(nil, value: vm.caseSlideFraction)
         }
         .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 
 // MARK: - FigmaCDJewelCase
-//
-// Disc + case art + spine are one fused layer in a shared 340 pt slot.
-// Both images scale together — no separate Figma offsets (assets are pre-aligned).
 
 struct FigmaCDJewelCase: View {
-    var cdAngle: Double
-    var discArtwork: UIImage?
-    var discPlaceholder: UIImage?
+    @ObservedObject var vm: MusicPlayerViewModel
+
+    @State private var caseDragAnchor: CGFloat = 0
+    @State private var isCaseDragging = false
+
+    @State private var discDragStartAngle: Double?
+    @State private var discLastAngle: Double?
+    @State private var seekAnchor = 0.0
+    @State private var isDiscDragging = false
 
     private static let side = FigmaTheme.heroCDSize
     private static let cd = FigmaTheme.CD3052722.self
 
-    var body: some View {
-        ZStack {
-            discLayer
-                .rotationEffect(.degrees(cdAngle))
+    private var slideFraction: CGFloat { vm.caseSlideFraction }
 
-            Image(FigmaImage.cdCoverArt)
+    private var discOffsetX: CGFloat {
+        Self.cd.discClosedOffsetX + Self.cd.discSlideDistance * slideFraction
+    }
+
+    private var discOffsetY: CGFloat { Self.cd.discClosedOffsetY }
+
+    private var caseOffsetX: CGFloat { -Self.cd.caseSlideDistance * slideFraction }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            discLayer
+                .offset(x: discOffsetX, y: discOffsetY)
+
+            caseLayer
+                .offset(x: caseOffsetX)
+        }
+        .frame(width: Self.side, height: Self.side, alignment: .topLeading)
+        .clipped()
+    }
+
+    // MARK: - Layers
+
+    private var discLayer: some View {
+        let w = Self.cd.discWidth
+        let h = Self.cd.discHeight
+
+        return ZStack {
+            discArtworkFill
+                .frame(width: w, height: h)
+                .clipped()
+                .mask(
+                    Image(FigmaImage.cdDisc)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: w, height: h)
+                )
+                .rotationEffect(.degrees(vm.cdAngle), anchor: .center)
+                .animation(nil, value: vm.cdAngle)
+
+            if vm.isHeroDiscInteractive {
+                Circle()
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    .frame(width: w, height: h)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: w, height: h)
+        .contentShape(Circle())
+        .allowsHitTesting(vm.isHeroDiscInteractive)
+        .highPriorityGesture(vm.isHeroDiscInteractive ? discSpinGesture : nil)
+        .simultaneousGesture(vm.isHeroDiscInteractive ? discTapGestures : nil)
+    }
+
+    @ViewBuilder
+    private var discArtworkFill: some View {
+        if let ui = vm.heroDiscArtwork {
+            Image(uiImage: ui).resizable().scaledToFill()
+        } else if let placeholder = vm.heroDiscPlaceholder {
+            Image(uiImage: placeholder).resizable().scaledToFill()
+        } else {
+            Image(FigmaImage.cdDisc).resizable().scaledToFill()
+        }
+    }
+
+    private var caseLayer: some View {
+        ZStack(alignment: .topLeading) {
+            Image(FigmaImage.cdCaseTray)
                 .resizable()
                 .scaledToFit()
+                .frame(width: Self.side, height: Self.side)
                 .allowsHitTesting(false)
-        }
-        .overlay(alignment: .topLeading) {
+
             Image(FigmaImage.cdCaseSpine)
                 .resizable()
                 .scaledToFit()
@@ -70,68 +128,158 @@ struct FigmaCDJewelCase: View {
                 .allowsHitTesting(false)
         }
         .frame(width: Self.side, height: Self.side)
+        .contentShape(CaseTrayHitShape(
+            slideFraction: slideFraction,
+            caseSlideDistance: Self.cd.caseSlideDistance
+        ))
+        .gesture(trayDragGesture)
     }
 
-    private var discLayer: some View {
-        Group {
-            if let ui = discArtwork {
-                Image(uiImage: ui)
-                    .resizable()
-                    .scaledToFill()
-            } else if let placeholder = discPlaceholder {
-                Image(uiImage: placeholder)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(FigmaImage.cdDisc)
-                    .resizable()
-                    .scaledToFill()
+    // MARK: - Tray drag (case hit region only — disc keeps scrub)
+
+    private var trayDragGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                let horiz = abs(value.translation.width)
+                let vert = abs(value.translation.height)
+                guard horiz > vert * 0.38 || isCaseDragging else { return }
+
+                if !isCaseDragging {
+                    isCaseDragging = true
+                    caseDragAnchor = slideFraction
+                    vm.impact(.soft)
+                }
+
+                let next = CaseTrayPhysics.dragFraction(
+                    anchor: caseDragAnchor,
+                    horizontalTranslation: value.translation.width,
+                    slideDistance: Self.cd.caseSlideDistance
+                )
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                    vm.caseSlideFraction = next
+                }
             }
+            .onEnded { _ in
+                guard isCaseDragging else { return }
+                isCaseDragging = false
+                finishTrayDrag()
+            }
+    }
+
+    private func finishTrayDrag() {
+        let target = CaseTrayPhysics.snapTarget(fraction: slideFraction)
+        vm.selectionChanged()
+        withAnimation(CaseTrayPhysics.snapAnimation) {
+            vm.caseSlideFraction = target
         }
-        .frame(width: Self.cd.discWidth, height: Self.cd.discHeight)
-        .clipped()
-        .mask(
-            Image(FigmaImage.cdDisc)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: Self.cd.discWidth, height: Self.cd.discHeight)
+    }
+
+    // MARK: - Disc scrub / spin (open only, isolated from tray)
+
+    private var discSpinGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                let discCenterX = Self.cd.discWidth / 2
+                let discCenterY = Self.cd.discHeight / 2
+                let angle = Self.degrees(atan2(
+                    value.location.y - discCenterY,
+                    value.location.x - discCenterX
+                ))
+
+                if !isDiscDragging {
+                    isDiscDragging = true
+                    discDragStartAngle = angle
+                    discLastAngle = angle
+                    seekAnchor = vm.progress
+                    vm.impact(.rigid)
+                }
+
+                if let prev = discLastAngle {
+                    let delta = Self.wrap(angle - prev)
+                    vm.scratch(delta: delta, velocity: delta * 0.85)
+                    vm.seek(to: min(1, max(0, seekAnchor + (angle - (discDragStartAngle ?? angle)) / 360.0)))
+                }
+                discLastAngle = angle
+            }
+            .onEnded { _ in
+                isDiscDragging = false
+                discDragStartAngle = nil
+                discLastAngle = nil
+                vm.endScratch()
+                vm.impact(.light)
+            }
+    }
+
+    private var discTapGestures: some Gesture {
+        ExclusiveGesture(
+            TapGesture(count: 2).onEnded {
+                vm.seek(bySeconds: 30)
+                vm.impact(.medium)
+            },
+            TapGesture(count: 1).onEnded {
+                vm.togglePlay()
+            }
         )
+    }
+
+    private static func degrees(_ radians: CGFloat) -> Double { Double(radians) * 180 / .pi }
+
+    private static func wrap(_ d: Double) -> Double {
+        var x = d
+        if x > 180 { x -= 360 }
+        if x < -180 { x += 360 }
+        return x
+    }
+}
+
+// MARK: - Case hit region
+
+/// Draggable region tracks the case still visible inside the hero clip as it slides left.
+private struct CaseTrayHitShape: Shape {
+    var slideFraction: CGFloat
+    var caseSlideDistance: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let startX = caseSlideDistance * slideFraction
+        let width = max(0, rect.width - startX)
+        guard width > 0 else { return p }
+        p.addRect(CGRect(x: startX, y: 0, width: width, height: rect.height))
+        return p
+    }
+
+    var animatableData: CGFloat {
+        get { slideFraction }
+        set { slideFraction = newValue }
     }
 }
 
 // MARK: - Top-half geometry
 
 enum FigmaTopHalf {
-    /// Fixed top safe-area inset from the physical screen edge (overrides system).
     static let heroSafeAreaTop: CGFloat = 48
-    /// Extra inset below the safe area — Figma `305:3026`.
     static let maxTopInset: CGFloat = 8
-    /// CD + gap + meta strip — tight content, no decorative tail.
     static var contentStackHeight: CGFloat {
         let stripH = max(FigmaTheme.heroMetaStripH, FigmaTheme.minTouchTarget)
         return FigmaTheme.heroCDSize + FigmaTheme.heroMetaGap + stripH
     }
     static let nativeWidth: CGFloat = 402
-
     static let topInset: CGFloat = heroSafeAreaTop + maxTopInset
     static let contentHeight: CGFloat = topInset + contentStackHeight
 }
 
-#Preview("CD Hero — 305:2722") {
+#Preview("CD Hero — closed") {
     FigmaCDHeroView(vm: MusicPlayerViewModel())
-        .frame(width: 402, height: FigmaTopHalf.contentStackHeight)
+        .frame(width: 402, height: FigmaTopHalf.contentHeight)
         .background(Color.white)
 }
 
-#Preview("CD Hero — compact 390") {
-    FigmaCDHeroView(vm: MusicPlayerViewModel())
-        .frame(width: 390, height: FigmaTopHalf.contentStackHeight)
-        .background(Color.white)
-}
-
-#Preview("Jewel case only") {
-    FigmaCDJewelCase(cdAngle: 0, discArtwork: nil, discPlaceholder: nil)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+#Preview("CD Hero — tray open") {
+    let vm = MusicPlayerViewModel()
+    vm.caseSlideFraction = 1
+    return FigmaCDHeroView(vm: vm)
+        .frame(width: 402, height: FigmaTopHalf.contentHeight)
         .background(Color.white)
 }

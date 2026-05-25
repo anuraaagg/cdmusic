@@ -136,6 +136,7 @@ struct FigmaLibrarySheet: View {
                         .interpolation(.high)
                         .scaledToFit()
                         .frame(width: c.logoWidth * s, height: c.logoHeight * s, alignment: .leading)
+                        .frame(width: c.logoWidth * s, alignment: .leading)
                         .accessibilityLabel("Press")
 
                     Spacer(minLength: 0)
@@ -152,6 +153,7 @@ struct FigmaLibrarySheet: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close library")
                     .accessibilityIdentifier("library.close")
+                    .frame(width: c.logoWidth * s, alignment: .trailing)
                 }
                 .frame(height: rowH)
 

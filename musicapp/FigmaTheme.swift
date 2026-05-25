@@ -44,6 +44,14 @@ enum FigmaTheme {
         static let spineHeight: CGFloat = 48.79
         static let spineOffsetX: CGFloat = 14.62
         static let spineOffsetY: CGFloat = 143.48
+
+        /// Figma `305:2722` closed → `360:2854` open (case left, disc right).
+        static let caseSlideDistance: CGFloat = 152
+        static let discSlideDistance: CGFloat = 32
+        /// Closed disc inset — centered in the 340 pt hero slot (Figma `305:2722`).
+        static var discClosedOffsetX: CGFloat { (FigmaTheme.heroCDSize - discWidth) / 2 }
+        static var discClosedOffsetY: CGFloat { (FigmaTheme.heroCDSize - discHeight) / 2 }
+        static let discInteractThreshold: CGFloat = 0.5
     }
 
     /// Scale for sub-402 pt widths only; never upscale past 1.0 on Pro / Pro Max.
@@ -82,6 +90,8 @@ enum FigmaTheme {
         static let pillCorner: CGFloat = 48
         static let counterFont: CGFloat = 16
         static let counterLineHeight: CGFloat = 24
+        /// Keeps the counter capsule width stable while the drawer label crossfades.
+        static let counterMinWidth: CGFloat = 88
         static let clusterGapMin: CGFloat = 10
         /// Dial plate + status pills share this height (`332:4653` cluster).
         static var innerClusterHeight: CGFloat { dialSize + dialPadding * 2 }

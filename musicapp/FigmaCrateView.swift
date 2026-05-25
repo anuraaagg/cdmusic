@@ -172,8 +172,10 @@ struct FigmaCrateHeader: View {
             ZStack {
                 HStack(alignment: .center, spacing: 0) {
                     pressLogo(scale: s)
+                        .frame(width: c.logoWidth * s, alignment: .leading)
                     Spacer(minLength: 0)
                     closeButton(scale: s)
+                        .frame(width: c.logoWidth * s, alignment: .trailing)
                 }
                 .frame(height: rowH)
 

@@ -2,11 +2,11 @@
 #include <SwiftUI/SwiftUI_Metal.h>
 using namespace metal;
 
-/// Matches Telegram-style ripple parameters (WaveDistortionView defaults).
+/// Matches Telegram-style ripple parameters — slowed decay so tap warp reads on screen.
 constant float kAmplitude = 10.0;
 constant float kFrequency = 15.0;
-constant float kDecay = 5.5;
-constant float kSpeed = 1400.0;
+constant float kDecay = 2.8;
+constant float kSpeed = 1100.0;
 
 static float2 rippleOffset(float2 position, float2 origin, float time) {
     float2 delta = position - origin;
@@ -18,11 +18,11 @@ static float2 rippleOffset(float2 position, float2 origin, float time) {
 
     float wavefront = time * kSpeed;
     float phase = dist - wavefront;
-    float envelope = exp(-abs(phase) * 0.012) * exp(-time * kDecay);
+    float envelope = exp(-abs(phase) * 0.008) * exp(-time * kDecay);
     float wave = sin(phase * kFrequency * 0.01) * envelope;
 
     float2 dir = delta / dist;
-    return dir * wave * kAmplitude * 0.60;
+    return dir * wave * kAmplitude * 0.55;
 }
 
 static float2 barrelOffset(float2 position, float width, float height, float velocity) {

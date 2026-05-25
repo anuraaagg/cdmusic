@@ -21,37 +21,76 @@ struct FigmaJamStatusPills: View {
     var body: some View {
         let m = FigmaTheme.JamToolbar.self
         let s = scale
-        let pillR = min(m.pillCorner * s, m.rowHeight * s / 2)
+        let clusterH = m.innerClusterHeight * s
+        let pillR = min(m.pillCorner * s, clusterH / 2)
         let overlap = m.pillsVisualOverlap * s
         let hp = m.pillHPad * s
-        let vp = m.pillVPad * s
         let statusW = m.statusPillWidth * s
+        let counterMinW = m.counterMinWidth * s
 
-        HStack(spacing: -overlap) {
-            Text(statusText)
-                .font(FigmaFont.status(m.statusFont * s))
-                .foregroundStyle(FigmaTheme.textDark)
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
-                .padding(.horizontal, hp)
-                .padding(.vertical, vp)
-                .frame(width: statusW, alignment: .center)
-                .background(FigmaTheme.jamPillFill)
-                .clipShape(RoundedRectangle(cornerRadius: pillR, style: .continuous))
+        HStack(alignment: .center, spacing: -overlap) {
+            statusPill(
+                text: statusText,
+                fontSize: m.statusFont * s,
+                width: statusW,
+                height: clusterH,
+                hPad: hp,
+                corner: pillR
+            )
 
-            Text(counterText.uppercased())
-                .font(FigmaFont.counter(m.counterFont * s))
-                .foregroundStyle(FigmaTheme.jamCounterText)
-                .lineSpacing((m.counterLineHeight - m.counterFont) * s)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, hp)
-                .padding(.vertical, vp)
-                .fixedSize(horizontal: true, vertical: false)
-                .background(FigmaTheme.jamPillFill)
-                .clipShape(RoundedRectangle(cornerRadius: pillR, style: .continuous))
-                .zIndex(1)
+            counterPill(
+                text: counterText.uppercased(),
+                fontSize: m.counterFont * s,
+                lineHeight: m.counterLineHeight * s,
+                minWidth: counterMinW,
+                height: clusterH,
+                hPad: hp,
+                corner: pillR
+            )
+            .zIndex(1)
         }
+        .frame(height: clusterH, alignment: .center)
+    }
+
+    private func statusPill(
+        text: String,
+        fontSize: CGFloat,
+        width: CGFloat,
+        height: CGFloat,
+        hPad: CGFloat,
+        corner: CGFloat
+    ) -> some View {
+        Text(text)
+            .font(FigmaFont.status(fontSize))
+            .foregroundStyle(FigmaTheme.textDark)
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .padding(.horizontal, hPad)
+            .frame(width: width, height: height, alignment: .center)
+            .background(FigmaTheme.jamPillFill)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+    }
+
+    private func counterPill(
+        text: String,
+        fontSize: CGFloat,
+        lineHeight: CGFloat,
+        minWidth: CGFloat,
+        height: CGFloat,
+        hPad: CGFloat,
+        corner: CGFloat
+    ) -> some View {
+        Text(text)
+            .font(FigmaFont.counter(fontSize))
+            .foregroundStyle(FigmaTheme.jamCounterText)
+            .lineSpacing(lineHeight - fontSize)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, hPad)
+            .frame(minWidth: minWidth)
+            .frame(height: height, alignment: .center)
+            .background(FigmaTheme.jamPillFill)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
     }
 }
 

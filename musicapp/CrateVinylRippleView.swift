@@ -8,6 +8,24 @@ private struct RippleShockwave: Identifiable {
     let birth: TimeInterval
 }
 
+/// Pure ripple slot math — safe to call from `visualEffect` (nonisolated render context).
+private enum RippleWaveMath {
+    nonisolated static func waveSlot(
+        index: Int,
+        shockwaves: [RippleShockwave],
+        now: TimeInterval,
+        duration: TimeInterval
+    ) -> (Float, Float, Float, Float) {
+        let active = shockwaves.filter { max(0, now - $0.birth) < duration }
+        guard active.indices.contains(index) else {
+            return (0, 0, -1, 0)
+        }
+        let wave = active[index]
+        let t = Float(max(0, now - wave.birth))
+        return (Float(wave.origin.x), Float(wave.origin.y), t, 1)
+    }
+}
+
 /// Carousel vinyl cell with tap ripple, scroll barrel warp, fling blur, and parallax depth.
 struct CrateVinylRippleView: View {
     let sleeveIndex: Int
@@ -22,24 +40,19 @@ struct CrateVinylRippleView: View {
     @State private var shockwaves: [RippleShockwave] = []
 
     private let maxRipples = 4
-    private let rippleSpeed: CGFloat = 1400
-    /// Wavefront ring peak opacity (was 0.02 — effectively invisible on cream crate).
-    private let highlightAlpha: CGFloat = 0.30
+    /// How long tap feedback stays visible (ring + warp).
+    private let rippleDuration: TimeInterval = 0.72
+    private let rippleSpeed: CGFloat = 1100
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-            RippleVinylContent(
-                sleeveIndex: sleeveIndex,
-                discArtwork: discArtwork,
-                labelColor: labelColor,
-                rotation: rotation,
-                cellSize: cellSize,
-                scrollVelocity: scrollVelocity,
-                shockwaves: shockwaves,
-                now: timeline.date.timeIntervalSinceReferenceDate,
-                rippleSpeed: rippleSpeed,
-                highlightAlpha: highlightAlpha
-            )
+        Group {
+            if shockwaves.isEmpty {
+                vinylBody(now: 0)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
+                    vinylBody(now: timeline.date.timeIntervalSinceReferenceDate)
+                }
+            }
         }
         .crateVinylParallax(norm: parallaxNorm)
         .contentShape(Circle())
@@ -49,10 +62,32 @@ struct CrateVinylRippleView: View {
         }
     }
 
+    @ViewBuilder
+    private func vinylBody(now: TimeInterval) -> some View {
+        RippleVinylContent(
+            sleeveIndex: sleeveIndex,
+            discArtwork: discArtwork,
+            labelColor: labelColor,
+            rotation: rotation,
+            cellSize: cellSize,
+            scrollVelocity: scrollVelocity,
+            shockwaves: shockwaves,
+            now: now,
+            rippleDuration: rippleDuration,
+            rippleSpeed: rippleSpeed
+        )
+    }
+
     private func triggerRipple(at point: CGPoint) {
-        shockwaves.append(RippleShockwave(origin: point, birth: Date.timeIntervalSinceReferenceDate))
+        let wave = RippleShockwave(origin: point, birth: Date.timeIntervalSinceReferenceDate)
+        shockwaves.append(wave)
         if shockwaves.count > maxRipples {
             shockwaves.removeFirst(shockwaves.count - maxRipples)
+        }
+
+        let waveID = wave.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + rippleDuration) {
+            shockwaves.removeAll { $0.id == waveID }
         }
     }
 }
@@ -66,17 +101,11 @@ private struct RippleVinylContent: View {
     let scrollVelocity: CGFloat
     let shockwaves: [RippleShockwave]
     let now: TimeInterval
+    let rippleDuration: TimeInterval
     let rippleSpeed: CGFloat
-    let highlightAlpha: CGFloat
-
-    private let rippleDecay: CGFloat = 5.5
 
     private var activeWaves: [RippleShockwave] {
-        shockwaves.filter { age(of: $0) < maxRippleLifetime }
-    }
-
-    private var maxRippleLifetime: TimeInterval {
-        Double(cellSize * 1.5 / rippleSpeed) + Double(1.0 / rippleDecay) + 0.35
+        shockwaves.filter { age(of: $0) < rippleDuration }
     }
 
     var body: some View {
@@ -88,10 +117,10 @@ private struct RippleVinylContent: View {
             cellSize: cellSize
         )
         .visualEffect { content, proxy in
-            let w0 = waveSlot(index: 0)
-            let w1 = waveSlot(index: 1)
-            let w2 = waveSlot(index: 2)
-            let w3 = waveSlot(index: 3)
+            let w0 = RippleWaveMath.waveSlot(index: 0, shockwaves: shockwaves, now: now, duration: rippleDuration)
+            let w1 = RippleWaveMath.waveSlot(index: 1, shockwaves: shockwaves, now: now, duration: rippleDuration)
+            let w2 = RippleWaveMath.waveSlot(index: 2, shockwaves: shockwaves, now: now, duration: rippleDuration)
+            let w3 = RippleWaveMath.waveSlot(index: 3, shockwaves: shockwaves, now: now, duration: rippleDuration)
             let size = proxy.size
 
             return content
@@ -125,39 +154,43 @@ private struct RippleVinylContent: View {
         max(0, now - wave.birth)
     }
 
-    private func waveSlot(index: Int) -> (Float, Float, Float, Float) {
-        guard activeWaves.indices.contains(index) else {
-            return (0, 0, -1, 0)
-        }
-        let wave = activeWaves[index]
-        let t = Float(age(of: wave))
-        return (Float(wave.origin.x), Float(wave.origin.y), t, 1)
-    }
-
     private var rippleHighlights: some View {
         Canvas { context, size in
             for wave in activeWaves {
                 let age = age(of: wave)
+                let life = age / rippleDuration
+                guard life < 1 else { continue }
+
+                let fade = 1 - life
                 let distance = age * rippleSpeed
-                let maxEdge = max(size.width, size.height) * 0.5
-                let progress = min(1, distance / maxEdge)
-                let radius = max(1, distance)
-                let opacity = highlightAlpha * (1 - min(1, progress / 0.50))
+                let radius = max(2, distance)
+                let ringOpacity = 0.55 * fade * fade
 
-                guard opacity > 0.01 else { continue }
-
+                // Expanding wavefront ring
                 let ring = Path(ellipseIn: CGRect(
                     x: wave.origin.x - radius,
                     y: wave.origin.y - radius,
                     width: radius * 2,
                     height: radius * 2
                 ))
-
                 context.stroke(
                     ring,
-                    with: .color(FigmaTheme.orangeAccent.opacity(opacity)),
-                    lineWidth: 2
+                    with: .color(FigmaTheme.orangeAccent.opacity(ringOpacity)),
+                    lineWidth: 2.5
                 )
+
+                // Brief centre pulse on touch
+                let pulseRadius = cellSize * 0.06 * (1 + life * 2.2)
+                let pulseOpacity = 0.28 * max(0, 1 - life / 0.22)
+                if pulseOpacity > 0.01 {
+                    let pulse = Path(ellipseIn: CGRect(
+                        x: wave.origin.x - pulseRadius,
+                        y: wave.origin.y - pulseRadius,
+                        width: pulseRadius * 2,
+                        height: pulseRadius * 2
+                    ))
+                    context.fill(pulse, with: .color(FigmaTheme.orangeAccent.opacity(pulseOpacity)))
+                }
             }
         }
         .allowsHitTesting(false)
