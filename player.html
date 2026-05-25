@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Player</title>
+<style>
+
+/* ── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #D4D0CA;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DEVICE — TE anodised-aluminium grey body
+══════════════════════════════════════════════════════════════ */
+#device {
+  width:  min(375px, 100vw);
+  height: min(812px, 100dvh);
+  background: #C6C2BC;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.50) inset,
+    0 -1px 0 rgba(0,0,0,0.22) inset,
+    0 0 0 1px rgba(0,0,0,0.28),
+    0 24px 72px rgba(0,0,0,0.55),
+    0 6px 18px rgba(0,0,0,0.30);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TOP — matte black display area
+══════════════════════════════════════════════════════════════ */
+#top-section {
+  flex: 0 0 52%;
+  background: #0C0B09;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Status bar ───────────────────────────────────────────── */
+#status-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 26px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  flex-shrink: 0;
+}
+#brand {
+  font-size: 7px; font-weight: 700;
+  letter-spacing: 0.32em; text-transform: uppercase;
+  color: rgba(255,255,255,0.16);
+}
+#status-right {
+  display: flex; align-items: center; gap: 8px;
+}
+#play-state-label {
+  font-size: 7px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(255,255,255,0.14);
+  transition: color 0.3s;
+}
+#play-state-label.on { color: rgba(240,64,0,0.80); }
+.led {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255,255,255,0.10);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.led.on {
+  background: #F04000;
+  box-shadow: 0 0 4px #F04000, 0 0 9px rgba(240,64,0,0.45);
+}
+
+/* ── Tonearm ──────────────────────────────────────────────── */
+#tonearm {
+  position: absolute; top: 28px; right: 14px;
+  width: 36px; height: 60px; z-index: 3;
+  transform-origin: 34px 6px;
+  transform: rotate(-8deg);
+  transition: transform 0.60s cubic-bezier(0.32,1.05,0.64,1), opacity 0.5s;
+  opacity: 0.40;
+  pointer-events: none;
+}
+
+/* ── Display content ──────────────────────────────────────── */
+.display-body {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  width: 100%;
+  padding-top: 26px;
+}
+
+/* ── Disc ─────────────────────────────────────────────────── */
+#disc-wrap {
+  width: 186px; height: 186px;
+  border-radius: 50%;
+  cursor: grab; touch-action: none;
+  will-change: transform;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 0 rgba(240,64,0,0));
+  transition: filter 0.6s;
+}
+#disc-wrap.playing {
+  filter: drop-shadow(0 0 14px rgba(240,64,0,0.28));
+}
+#disc-wrap:active { cursor: grabbing; }
+
+/* ── Track readout: monospace ticker ─────────────────────── */
+#track-readout {
+  margin-top: 12px;
+  width: calc(100% - 24px);
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 2px;
+  padding: 6px 10px;
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
+}
+#readout-name {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9.5px; letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.68);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 200px;
+}
+#readout-time {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9.5px; letter-spacing: 0.08em;
+  color: #F04000;
+  flex-shrink: 0; margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* EQ dots */
+.eq-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; margin-right: 5px; vertical-align: middle; }
+.eq-bar  { width: 2px; background: #F04000; border-radius: 1px; animation: eqA 0.48s ease-in-out infinite alternate; }
+.eq-bar:nth-child(2) { animation-delay: 0.14s; }
+.eq-bar:nth-child(3) { animation-delay: 0.07s; }
+@keyframes eqA { from { height: 2px; } to { height: 10px; } }
+
+/* Scratch ripple */
+.scratch-ring {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%) scale(0);
+  border: 1px solid rgba(240,64,0,0.22);
+  border-radius: 50%; pointer-events: none; z-index: 5;
+  animation: sRing 0.50s ease-out forwards;
+}
+@keyframes sRing { to { transform: translate(-50%,-50%) scale(1.55); opacity: 0; } }
+
+/* Skin flash */
+#skin-flash {
+  position: absolute; inset: 0; pointer-events: none; z-index: 8; background: transparent;
+}
+#skin-flash.flash { animation: sFlash 0.28s ease-out forwards; }
+@keyframes sFlash { 0% { background: rgba(240,64,0,0.10); } 100% { background: transparent; } }
+
+/* Vol HUD */
+#vol-hud {
+  position: absolute; top: 46%; left: 50%; transform: translate(-50%,-50%);
+  background: #161410;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 2px; padding: 12px 18px;
+  text-align: center; z-index: 20; display: none;
+}
+#vol-hud.show { display: block; }
+#vol-hud-lbl { font-size: 6.5px; font-weight: 700; letter-spacing: 0.30em; text-transform: uppercase; color: rgba(255,255,255,0.22); margin-bottom: 5px; }
+#vol-hud-val { font-family: 'Courier New', monospace; font-size: 30px; font-weight: 400; color: #F04000; letter-spacing: -1px; }
+#vol-hud-bar  { width: 78px; height: 2px; background: rgba(255,255,255,0.06); margin: 8px auto 0; }
+#vol-hud-fill { height: 100%; background: #F04000; transition: width 0.12s; }
+
+/* ══════════════════════════════════════════════════════════════
+   CONTROL WRAPPER
+══════════════════════════════════════════════════════════════ */
+#control-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── CRATE (z:1) ──────────────────────────────────────────── */
+#crate-section {
+  position: absolute; inset: 0; z-index: 1;
+  background: #BAB6B0;
+  display: flex; flex-direction: column;
+  border-top: 1px solid rgba(255,255,255,0.42);
+}
+#crate-header {
+  flex-shrink: 0; height: 34px;
+  background: #B0ACA6;
+  border-bottom: 1px solid rgba(0,0,0,0.16);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+}
+#crate-label {
+  font-size: 7px; font-weight: 700; letter-spacing: 0.30em;
+  text-transform: uppercase; color: rgba(0,0,0,0.38);
+}
+#crate-close-btn {
+  height: 22px; padding: 0 10px;
+  background: #2A2826;
+  border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.50);
+  font-size: 7px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
+  cursor: pointer; transition: background 0.08s;
+}
+#crate-close-btn:active { background: #161410; }
+#crate-scroll {
+  flex: 1;
+  overflow-x: scroll; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  display: flex; align-items: center;
+  gap: 8px; padding: 12px 14px;
+}
+#crate-scroll::-webkit-scrollbar { display: none; }
+.disc-card {
+  flex-shrink: 0; width: 80px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.disc-card-disc {
+  width: 68px; height: 68px; border-radius: 50%;
+  transition: transform 0.20s, box-shadow 0.20s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.30);
+}
+.disc-card.active .disc-card-disc {
+  transform: scale(1.10);
+  box-shadow: 0 0 0 2px #F04000, 0 4px 14px rgba(0,0,0,0.45);
+}
+.disc-card-title {
+  font-size: 7px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(0,0,0,0.38); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+  transition: color 0.2s;
+}
+.disc-card.active .disc-card-title { color: rgba(0,0,0,0.70); }
+.disc-card-artist {
+  font-size: 7px; color: rgba(0,0,0,0.22); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+}
+#crate-hint {
+  flex-shrink: 0; text-align: center; padding: 4px 0 14px;
+  font-size: 7px; letter-spacing: 0.20em; text-transform: uppercase;
+  color: rgba(0,0,0,0.18);
+}
+
+/* ── CONTROL PANEL (z:2) ─────────────────────────────────── */
+#control-panel {
+  position: absolute; inset: 0; z-index: 2;
+  transform: translateY(0);
+  transition: transform 0.42s cubic-bezier(0.32,1.05,0.60,1);
+  will-change: transform;
+}
+
+#control-section {
+  height: 100%;
+  background: #C6C2BC;
+  border-top: 1px solid rgba(255,255,255,0.52);
+  display: flex; flex-direction: column;
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+/* Drag handle */
+#drag-handle {
+  flex-shrink: 0; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; touch-action: none;
+}
+#drag-handle::after {
+  content: ''; display: block;
+  width: 30px; height: 2px;
+  background: rgba(0,0,0,0.16); border-radius: 1px;
+}
+#drag-handle:active { cursor: grabbing; }
+#drag-handle:active::after { background: rgba(0,0,0,0.32); }
+
+/* Track name row */
+#ctrl-name-row {
+  flex-shrink: 0;
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 8px;
+}
+#ctrl-track-name {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.10em;
+  text-transform: uppercase; color: rgba(0,0,0,0.62);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1;
+}
+#ctrl-artist-name {
+  font-size: 8px; letter-spacing: 0.06em;
+  color: rgba(0,0,0,0.28); flex-shrink: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+/* ── Segmented progress bar ───────────────────────────────── */
+#progress-wrap {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+#seg-bar {
+  display: flex; gap: 2.5px;
+  cursor: pointer; touch-action: none;
+}
+.seg {
+  flex: 1; height: 8px;
+  background: rgba(0,0,0,0.12);
+  border-radius: 1px;
+  transition: background 0.10s;
+  pointer-events: none;
+}
+.seg.filled  { background: rgba(240,64,0,0.42); }
+.seg.current { background: #F04000; }
+#prog-times {
+  display: flex; justify-content: space-between;
+  margin-top: 4px;
+}
+.p-time {
+  font-size: 8px; font-family: 'Courier New', monospace;
+  letter-spacing: 0.06em; color: rgba(0,0,0,0.28);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Transport ────────────────────────────────────────────── */
+#transport {
+  flex-shrink: 0;
+  display: flex; gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* base TE button */
+.te-btn {
+  background: #2A2826;
+  border: none; outline: none; border-radius: 3px;
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
+  color: rgba(255,255,255,0.55);
+  transition: background 0.08s, transform 0.08s;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 -1px 0 rgba(0,0,0,0.30) inset,
+    0 2px 5px rgba(0,0,0,0.32);
+}
+.te-btn:active {
+  background: #161410;
+  transform: scale(0.96) translateY(1px);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.45) inset;
+}
+.te-btn-lbl {
+  font-size: 6.5px; font-weight: 700;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  color: rgba(255,255,255,0.26);
+  line-height: 1;
+}
+
+/* Prev / Next */
+#btn-prev, #btn-next {
+  flex: 1; height: 52px;
+}
+/* Play (orange, wide) */
+#btn-play-main {
+  flex: 2; height: 52px;
+  background: #F04000;
+  color: #fff;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.16) inset,
+    0 -1px 0 rgba(0,0,0,0.28) inset,
+    0 3px 12px rgba(240,64,0,0.40),
+    0 2px 5px rgba(0,0,0,0.24);
+}
+#btn-play-main:active {
+  background: #CC3500;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45) inset;
+}
+#btn-play-main .te-btn-lbl { color: rgba(255,255,255,0.55); }
+
+/* ── Secondary row: SHUF · VOL · LOOP ────────────────────── */
+#secondary-row {
+  flex-shrink: 0;
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 8px;
+}
+.te-sm {
+  flex-shrink: 0; width: 58px; height: 38px;
+  background: #2A2826;
+  border-radius: 3px; cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  transition: background 0.08s;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.05) inset,
+    0 2px 5px rgba(0,0,0,0.28);
+}
+.te-sm:active { background: #161410; }
+.te-sm-lbl {
+  font-size: 6.5px; font-weight: 700;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  color: rgba(255,255,255,0.28); line-height: 1;
+}
+.te-sm-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  transition: background 0.2s;
+}
+.te-sm.active { border-top: 2px solid #F04000; }
+.te-sm.active .te-sm-dot { background: #F04000; }
+.te-sm.active .te-sm-lbl { color: rgba(255,255,255,0.65); }
+
+/* Volume slider */
+#vol-wrap {
+  flex: 1; display: flex; align-items: center; gap: 7px;
+}
+.vol-end {
+  flex-shrink: 0;
+  font-size: 8px; color: rgba(0,0,0,0.28);
+  display: flex; align-items: center;
+}
+#vol-track {
+  flex: 1; height: 3px;
+  background: rgba(0,0,0,0.16);
+  border-radius: 1.5px;
+  position: relative; cursor: pointer; touch-action: none;
+}
+#vol-fill {
+  height: 100%; background: #F04000;
+  border-radius: 1.5px; width: 70%;
+  pointer-events: none;
+}
+#vol-thumb {
+  position: absolute; top: 50%;
+  left: calc(70% - 5px); transform: translateY(-50%);
+  width: 10px; height: 10px;
+  background: #F0EDE6; border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.30);
+}
+
+/* ── Bottom bar ───────────────────────────────────────────── */
+#bottom-bar {
+  margin-top: auto; flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
+  border-top: 1px solid rgba(0,0,0,0.10);
+}
+.bot-btn {
+  flex-shrink: 0; height: 32px; padding: 0 12px;
+  background: #2A2826;
+  border-radius: 3px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 6.5px; font-weight: 700; letter-spacing: 0.24em;
+  text-transform: uppercase; color: rgba(255,255,255,0.38);
+  transition: background 0.08s;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 5px rgba(0,0,0,0.25);
+}
+.bot-btn:active { background: #161410; }
+
+/* Track dots */
+#track-dots {
+  flex: 1; display: flex; gap: 4px;
+  align-items: center; justify-content: center;
+}
+.tdot {
+  height: 3px; border-radius: 1.5px;
+  background: rgba(0,0,0,0.14);
+  transition: all 0.30s;
+}
+.tdot.active { background: #F04000; width: 14px !important; }
+
+</style>
+</head>
+<body>
+
+<div id="device">
+
+  <!-- ══ TOP DISPLAY ══ -->
+  <div id="top-section">
+
+    <div id="status-bar">
+      <span id="brand">Player</span>
+      <div id="status-right">
+        <span id="play-state-label">Stop</span>
+        <div class="led" id="led-play"></div>
+      </div>
+    </div>
+
+    <!-- Tonearm -->
+    <div id="tonearm">
+      <svg viewBox="0 0 36 60" fill="none" width="36" height="60">
+        <line x1="33" y1="5" x2="10" y2="56"
+              stroke="rgba(255,255,255,0.18)" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="33" cy="5" r="4"
+                fill="rgba(255,255,255,0.06)"
+                stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+        <!-- Headshell -->
+        <rect x="6" y="52" width="8" height="5" rx="1"
+              fill="rgba(255,255,255,0.07)"
+              stroke="rgba(255,255,255,0.10)" stroke-width="0.5"/>
+        <!-- Needle – orange tip -->
+        <circle cx="10" cy="57.5" r="1.8" fill="#F04000" opacity="0.90"/>
+      </svg>
+    </div>
+
+    <div class="display-body">
+
+      <!--
+        ╔═══════════════════════════════════════════╗
+        ║  DISC — replace <svg id="disc-svg">      ║
+        ║  with your own SVG or <img>.             ║
+        ║  Keep id="disc-wrap" on the outer div.   ║
+        ╚═══════════════════════════════════════════╝
+      -->
+      <div id="disc-wrap">
+        <svg id="disc-svg" viewBox="0 0 186 186" width="186" height="186"
+             style="display:block;border-radius:50%">
+          <defs>
+            <radialGradient id="dBase" cx="38%" cy="32%" r="70%">
+              <stop offset="0%"   stop-color="#1C1A16"/>
+              <stop offset="100%" stop-color="#080706"/>
+            </radialGradient>
+            <radialGradient id="dSpec" cx="32%" cy="26%" r="64%">
+              <stop offset="0%"   stop-color="rgba(255,255,255,0.10)"/>
+              <stop offset="50%"  stop-color="rgba(255,255,255,0.02)"/>
+              <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+            </radialGradient>
+          </defs>
+          <!-- Base -->
+          <circle cx="93" cy="93" r="92" fill="url(#dBase)"/>
+          <!-- Groove rings — dense vinyl -->
+          <circle cx="93" cy="93" r="87" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="0.6"/>
+          <circle cx="93" cy="93" r="82" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="0.5"/>
+          <circle cx="93" cy="93" r="77" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="0.6"/>
+          <circle cx="93" cy="93" r="72" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="0.5"/>
+          <circle cx="93" cy="93" r="67" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="0.6"/>
+          <circle cx="93" cy="93" r="62" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="0.5"/>
+          <circle cx="93" cy="93" r="57" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="0.6"/>
+          <circle cx="93" cy="93" r="52" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="0.5"/>
+          <circle cx="93" cy="93" r="47" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="0.5"/>
+          <!-- Centre label — TE orange -->
+          <circle cx="93" cy="93" r="30" fill="#F04000"/>
+          <!-- Label ring detail -->
+          <circle cx="93" cy="93" r="29" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="0.5"/>
+          <circle cx="93" cy="93" r="22" fill="none" stroke="rgba(0,0,0,0.10)" stroke-width="0.5"/>
+          <!-- Specular sheen -->
+          <circle cx="93" cy="93" r="92" fill="url(#dSpec)"/>
+          <!-- Rim -->
+          <circle cx="93" cy="93" r="92" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+          <!-- Spindle -->
+          <circle cx="93" cy="93" r="4.5" fill="#080706" stroke="rgba(255,255,255,0.12)" stroke-width="0.5"/>
+        </svg>
+      </div>
+
+      <!-- Monospace readout strip -->
+      <div id="track-readout">
+        <div id="readout-name">MIDNIGHT CASCADE</div>
+        <div id="readout-time">0:47 / 3:57</div>
+      </div>
+
+    </div><!-- /display-body -->
+
+    <div id="skin-flash"></div>
+
+    <div id="vol-hud">
+      <div id="vol-hud-lbl">Volume</div>
+      <div id="vol-hud-val">70</div>
+      <div id="vol-hud-bar"><div id="vol-hud-fill" style="width:70%"></div></div>
+    </div>
+
+  </div><!-- /top-section -->
+
+  <!-- ══ CONTROL WRAPPER ══ -->
+  <div id="control-wrapper">
+
+    <!-- CRATE z:1 -->
+    <div id="crate-section">
+      <div id="crate-header">
+        <span id="crate-label">Library</span>
+        <div id="crate-close-btn">Close</div>
+      </div>
+      <div id="crate-scroll"></div>
+      <div id="crate-hint">Tap · Tap again to load</div>
+    </div>
+
+    <!-- CONTROL PANEL z:2 -->
+    <div id="control-panel">
+      <div id="control-section">
+
+        <!-- Drag handle -->
+        <div id="drag-handle"></div>
+
+        <!-- Track name / artist -->
+        <div id="ctrl-name-row">
+          <div id="ctrl-track-name">Midnight Cascade</div>
+          <div id="ctrl-artist-name">Neon Drift</div>
+        </div>
+
+        <!-- Segmented progress bar -->
+        <div id="progress-wrap">
+          <div id="seg-bar"><!-- filled by JS --></div>
+          <div id="prog-times">
+            <span class="p-time" id="prog-cur">0:47</span>
+            <span class="p-time" id="prog-tot">3:57</span>
+          </div>
+        </div>
+
+        <!-- Transport -->
+        <div id="transport">
+
+          <button class="te-btn" id="btn-prev">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+              <rect x="2" y="3" width="2.5" height="12" rx="0.8"/>
+              <path d="M15 3L5.5 9 15 15V3z"/>
+            </svg>
+            <span class="te-btn-lbl">Prev</span>
+          </button>
+
+          <button class="te-btn" id="btn-play-main">
+            <svg id="play-svg" width="22" height="22" viewBox="0 0 22 22" fill="currentColor">
+              <path d="M7 4.5L18 11 7 17.5V4.5z"/>
+            </svg>
+            <span class="te-btn-lbl" id="play-lbl">Play</span>
+          </button>
+
+          <button class="te-btn" id="btn-next">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+              <rect x="13.5" y="3" width="2.5" height="12" rx="0.8"/>
+              <path d="M3 3l9.5 6L3 15V3z"/>
+            </svg>
+            <span class="te-btn-lbl">Next</span>
+          </button>
+
+        </div>
+
+        <!-- Secondary: SHUF · Volume · LOOP -->
+        <div id="secondary-row">
+
+          <div class="te-sm" id="btn-shuf">
+            <div class="te-sm-dot"></div>
+            <div class="te-sm-lbl">Shuf</div>
+          </div>
+
+          <div id="vol-wrap">
+            <div class="vol-end">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="rgba(0,0,0,0.32)">
+                <path d="M1 4v4h2.5L6 10V2L3.5 4H1z"/>
+              </svg>
+            </div>
+            <div id="vol-track">
+              <div id="vol-fill"></div>
+              <div id="vol-thumb"></div>
+            </div>
+            <div class="vol-end">
+              <svg width="15" height="12" viewBox="0 0 15 12" fill="rgba(0,0,0,0.32)">
+                <path d="M1 4v4h2.5L6 10V2L3.5 4H1z"/>
+                <path d="M9 3a4.5 4.5 0 0 1 0 6" stroke="rgba(0,0,0,0.32)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+                <path d="M11 1a7 7 0 0 1 0 10" stroke="rgba(0,0,0,0.22)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="te-sm" id="btn-loop">
+            <div class="te-sm-dot"></div>
+            <div class="te-sm-lbl">Loop</div>
+          </div>
+
+        </div>
+
+        <!-- Bottom bar -->
+        <div id="bottom-bar">
+
+          <div class="bot-btn" id="btn-lib">Lib</div>
+
+          <div id="track-dots">
+            <div class="tdot active" style="width:14px"></div>
+            <div class="tdot" style="width:4px"></div>
+            <div class="tdot" style="width:4px"></div>
+            <div class="tdot" style="width:4px"></div>
+            <div class="tdot" style="width:4px"></div>
+          </div>
+
+          <div class="bot-btn" id="btn-more">···</div>
+
+        </div>
+
+      </div><!-- /control-section -->
+    </div><!-- /control-panel -->
+
+  </div><!-- /control-wrapper -->
+
+</div><!-- /device -->
+
+<audio id="audio-probe" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAA..." loop></audio>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const SEG_COUNT = 24;
+
+const ALBUMS = [
+  { title: 'Midnight Cascade', artist: 'Neon Drift',  color: '#F04000' },
+  { title: 'Solar Winds',      artist: 'Pulse Echo',  color: '#C83A00' },
+  { title: 'Deep Current',     artist: 'Flux Field',  color: '#0060C0' },
+  { title: 'Amber Static',     artist: 'The Groove',  color: '#C07A00' },
+  { title: 'Neon Rain',        artist: 'Circuit',     color: '#008050' },
+  { title: 'Phase Shift',      artist: 'Zero One',    color: '#800040' },
+  { title: 'Static Dreams',    artist: 'Analog Soul', color: '#005880' },
+  { title: 'Warm Machine',     artist: 'Low Hum',     color: '#804000' },
+  { title: 'Night Circuit',    artist: 'Sub Layer',   color: '#303080' },
+];
+
+const PLAY_PATH  = '<path d="M7 4.5L18 11 7 17.5V4.5z"/>';
+const PAUSE_PATH = '<rect x="5" y="4" width="4" height="14" rx="1.2"/><rect x="13" y="4" width="4" height="14" rx="1.2"/>';
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+const S = {
+  isPlaying:    false,
+  volume:       0.70,
+  progress:     0.197,
+  angle:        0,
+  velocity:     0.35,
+  isScratching: false,
+  scratchVel:   0,
+  isShuffle:    false,
+  repeatMode:   0,
+  duration:     237,
+  currentTime:  47,
+};
+let activeIdx  = 0;
+let crateOpen  = false;
+let progTimer  = null;
+let trackTitle = 'Midnight Cascade';
+let artistName = 'Neon Drift';
+
+// ═══════════════════════════════════════════════════════════
+// REFS
+// ═══════════════════════════════════════════════════════════
+const discWrap   = document.getElementById('disc-wrap');
+const ctrlPanel  = document.getElementById('control-panel');
+const ctrlWrap   = document.getElementById('control-wrapper');
+const playSvg    = document.getElementById('play-svg');
+const playLbl    = document.getElementById('play-lbl');
+const tonearm    = document.getElementById('tonearm');
+const ledPlay    = document.getElementById('led-play');
+const psLabel    = document.getElementById('play-state-label');
+
+// ═══════════════════════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════
+function loop() {
+  if (!S.isScratching && S.isPlaying) {
+    S.angle += S.velocity;
+    S.scratchVel += (S.velocity - S.scratchVel) * 0.06;
+  }
+  discWrap.style.transform = `rotate(${S.angle}deg)`;
+  updateTonearm();
+  requestAnimationFrame(loop);
+}
+loop();
+
+function updateTonearm() {
+  let a = -8;
+  if (S.isPlaying)    a += S.progress * 22;
+  if (S.isScratching) a += S.scratchVel * 0.5;
+  tonearm.style.transform = `rotate(${a}deg)`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCRATCH
+// ═══════════════════════════════════════════════════════════
+let scrLast = 0, scrT = 0;
+
+function getAngle(e) {
+  const r  = discWrap.getBoundingClientRect();
+  const pt = e.touches ? e.touches[0] : e;
+  return Math.atan2(pt.clientY - (r.top + r.height / 2),
+                    pt.clientX - (r.left + r.width  / 2)) * 180 / Math.PI;
+}
+
+discWrap.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  S.isScratching = true;
+  scrLast = getAngle(e); scrT = performance.now();
+}, { passive: false });
+
+discWrap.addEventListener('pointermove', e => {
+  if (!S.isScratching) return; e.preventDefault();
+  const a = getAngle(e), now = performance.now();
+  let d = a - scrLast;
+  if (d >  180) d -= 360;
+  if (d < -180) d += 360;
+  S.angle    += d;
+  S.scratchVel = d / Math.max(1, now - scrT) * 16;
+  scrLast = a; scrT = now;
+  if (Math.abs(d) > 4) spawnRing();
+}, { passive: false });
+
+['pointerup', 'pointerleave'].forEach(ev =>
+  discWrap.addEventListener(ev, () => {
+    S.isScratching = false;
+    if (S.isPlaying) {
+      S.velocity = S.scratchVel;
+      const decay = () => {
+        S.velocity += (0.35 - S.velocity) * 0.04;
+        if (Math.abs(S.velocity - 0.35) > 0.005) requestAnimationFrame(decay);
+        else S.velocity = 0.35;
+      };
+      decay();
+    }
+  })
+);
+
+function spawnRing() {
+  const el = document.createElement('div');
+  el.className = 'scratch-ring';
+  const sz = 160 + Math.random() * 50;
+  el.style.cssText = `width:${sz}px;height:${sz}px`;
+  document.getElementById('top-section').appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+// ═══════════════════════════════════════════════════════════
+// SEGMENTED PROGRESS BAR
+// ═══════════════════════════════════════════════════════════
+function buildSegBar() {
+  const bar = document.getElementById('seg-bar');
+  bar.innerHTML = '';
+  for (let i = 0; i < SEG_COUNT; i++) {
+    const s = document.createElement('div');
+    s.className = 'seg'; s.dataset.i = i;
+    bar.appendChild(s);
+  }
+}
+
+function updateProgress() {
+  const filled = Math.floor(S.progress * SEG_COUNT);
+  document.querySelectorAll('.seg').forEach((s, i) => {
+    const f = i < filled, c = i === filled;
+    s.className = 'seg' + (f ? ' filled' : '') + (c ? ' current' : '');
+  });
+  const cur = fmt(S.currentTime);
+  document.getElementById('prog-cur').textContent  = cur;
+  document.getElementById('readout-time').textContent =
+    cur + ' / ' + fmt(S.duration);
+}
+
+// Click/drag on seg bar to seek
+const segBar = document.getElementById('seg-bar');
+let segDrag = false;
+
+function seekFromX(x) {
+  const r = segBar.getBoundingClientRect();
+  S.progress    = Math.max(0, Math.min(1, (x - r.left) / r.width));
+  S.currentTime = S.progress * S.duration;
+  updateProgress();
+}
+segBar.addEventListener('pointerdown', e => {
+  e.preventDefault(); segDrag = true;
+  segBar.setPointerCapture(e.pointerId); seekFromX(e.clientX);
+});
+segBar.addEventListener('pointermove', e => { if (segDrag) seekFromX(e.clientX); });
+segBar.addEventListener('pointerup',   () => { segDrag = false; });
+
+// ═══════════════════════════════════════════════════════════
+// VOLUME SLIDER
+// ═══════════════════════════════════════════════════════════
+const volTrack = document.getElementById('vol-track');
+let volDrag = false;
+
+function setVol(v) {
+  S.volume = Math.max(0, Math.min(1, v));
+  const pct = (S.volume * 100).toFixed(1) + '%';
+  document.getElementById('vol-fill').style.width  = pct;
+  document.getElementById('vol-thumb').style.left  = `calc(${S.volume * 100}% - 5px)`;
+  document.getElementById('vol-hud-val').textContent  = Math.round(S.volume * 100);
+  document.getElementById('vol-hud-fill').style.width = pct;
+  const h = document.getElementById('vol-hud');
+  h.classList.add('show');
+  clearTimeout(volTO);
+  volTO = setTimeout(() => h.classList.remove('show'), 1500);
+}
+let volTO = null;
+
+function volFromX(x) {
+  const r = volTrack.getBoundingClientRect();
+  setVol((x - r.left) / r.width);
+}
+volTrack.addEventListener('pointerdown', e => {
+  e.preventDefault(); volDrag = true;
+  volTrack.setPointerCapture(e.pointerId); volFromX(e.clientX);
+});
+volTrack.addEventListener('pointermove', e => { if (volDrag) volFromX(e.clientX); });
+volTrack.addEventListener('pointerup',   () => { volDrag = false; });
+
+// Hardware volume probe
+const probe = document.getElementById('audio-probe');
+document.getElementById('device').addEventListener('pointerdown', () => probe.play().catch(() => {}), { once: true });
+probe.addEventListener('volumechange', () => setVol(probe.volume));
+
+// ═══════════════════════════════════════════════════════════
+// PLAYBACK
+// ═══════════════════════════════════════════════════════════
+function setTrackMeta() {
+  document.getElementById('ctrl-track-name').textContent = trackTitle.toUpperCase();
+  document.getElementById('ctrl-artist-name').textContent = artistName;
+  document.getElementById('readout-name').textContent = trackTitle.toUpperCase();
+}
+
+function togglePlay() {
+  S.isPlaying = !S.isPlaying;
+  playSvg.innerHTML  = S.isPlaying ? PAUSE_PATH : PLAY_PATH;
+  playLbl.textContent = S.isPlaying ? 'Pause' : 'Play';
+  psLabel.textContent = S.isPlaying ? 'Play'  : 'Stop';
+  psLabel.classList.toggle('on', S.isPlaying);
+  ledPlay.classList.toggle('on', S.isPlaying);
+  discWrap.classList.toggle('playing', S.isPlaying);
+  tonearm.style.opacity = S.isPlaying ? '0.55' : '0.38';
+
+  if (S.isPlaying) {
+    startProg();
+  } else {
+    clearInterval(progTimer);
+  }
+}
+
+function startProg() {
+  clearInterval(progTimer);
+  progTimer = setInterval(() => {
+    S.currentTime = Math.min(S.currentTime + 0.5, S.duration);
+    S.progress    = S.currentTime / S.duration;
+    updateProgress();
+    if (S.currentTime >= S.duration) { S.currentTime = 0; S.progress = 0; }
+  }, 500);
+}
+
+document.getElementById('btn-play-main').addEventListener('click', togglePlay);
+document.getElementById('btn-prev').addEventListener('click', () => {
+  S.currentTime = 0; S.progress = 0; updateProgress();
+});
+document.getElementById('btn-next').addEventListener('click', () => {
+  S.currentTime = 0; S.progress = 0; updateProgress();
+});
+
+// ═══════════════════════════════════════════════════════════
+// SHUFFLE / LOOP
+// ═══════════════════════════════════════════════════════════
+document.getElementById('btn-shuf').addEventListener('click', function () {
+  S.isShuffle = !S.isShuffle;
+  this.classList.toggle('active', S.isShuffle);
+});
+document.getElementById('btn-loop').addEventListener('click', function () {
+  S.repeatMode = (S.repeatMode + 1) % 3;
+  this.classList.toggle('active', S.repeatMode > 0);
+});
+
+// ═══════════════════════════════════════════════════════════
+// SKIN FLASH
+// ═══════════════════════════════════════════════════════════
+function flashSkin() {
+  const f = document.getElementById('skin-flash');
+  f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CRATE
+// ═══════════════════════════════════════════════════════════
+function miniDisc(color) {
+  const id = 'mc' + color.replace('#', '');
+  return `<svg viewBox="0 0 68 68" width="68" height="68" style="display:block;border-radius:50%">
+    <defs>
+      <radialGradient id="${id}" cx="36%" cy="30%" r="70%">
+        <stop offset="0%"   stop-color="#1C1A16"/>
+        <stop offset="100%" stop-color="#080706"/>
+      </radialGradient>
+    </defs>
+    <circle cx="34" cy="34" r="33" fill="url(#${id})"/>
+    <circle cx="34" cy="34" r="28" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+    <circle cx="34" cy="34" r="23" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+    <circle cx="34" cy="34" r="18" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+    <circle cx="34" cy="34" r="11" fill="${color}" opacity="0.92"/>
+    <circle cx="34" cy="34" r="33" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    <circle cx="34" cy="34" r="3.5" fill="#080706" stroke="rgba(255,255,255,0.10)" stroke-width="0.5"/>
+  </svg>`;
+}
+
+function buildCrate() {
+  const scroll = document.getElementById('crate-scroll');
+  scroll.innerHTML = '';
+  ALBUMS.forEach((a, i) => {
+    const card   = document.createElement('div');
+    card.className = 'disc-card' + (i === activeIdx ? ' active' : '');
+    card.style.setProperty('--accent', a.color);
+    card.dataset.idx = i;
+
+    const disc   = document.createElement('div');
+    disc.className = 'disc-card-disc';
+    disc.innerHTML = miniDisc(a.color);
+
+    const title  = document.createElement('div');
+    title.className = 'disc-card-title';
+    title.textContent = a.title;
+
+    const artist = document.createElement('div');
+    artist.className = 'disc-card-artist';
+    artist.textContent = a.artist;
+
+    card.append(disc, title, artist);
+    card.addEventListener('click', () =>
+      i === activeIdx ? selectDisc(i) : setActiveCard(i)
+    );
+    scroll.appendChild(card);
+  });
+}
+
+function setActiveCard(idx) {
+  activeIdx = idx;
+  document.querySelectorAll('.disc-card').forEach((c, i) =>
+    c.classList.toggle('active', i === idx)
+  );
+}
+
+function selectDisc(idx) {
+  const a = ALBUMS[idx];
+  trackTitle = a.title;
+  artistName = a.artist;
+  flashSkin();
+  setTrackMeta();
+  S.currentTime = 0; S.progress = 0; updateProgress();
+  setTimeout(() => {
+    closeCrate();
+    if (!S.isPlaying) togglePlay();
+  }, 260);
+}
+
+// ═══════════════════════════════════════════════════════════
+// OPEN / CLOSE CRATE
+// ═══════════════════════════════════════════════════════════
+function openCrate() {
+  if (crateOpen) return;
+  crateOpen = true;
+  buildCrate();
+  ctrlPanel.style.transform = 'translateY(100%)';
+}
+function closeCrate() {
+  if (!crateOpen) return;
+  crateOpen = false;
+  ctrlPanel.style.transform = '';
+}
+document.getElementById('crate-close-btn').addEventListener('click', e => {
+  e.stopPropagation(); closeCrate();
+});
+document.getElementById('btn-lib').addEventListener('click', openCrate);
+
+// Swipe up on crate
+let csY = 0, csActive = false;
+const crateEl = document.getElementById('crate-section');
+crateEl.addEventListener('touchstart', e => { csY = e.touches[0].clientY; csActive = true; }, { passive: true });
+crateEl.addEventListener('touchend',   e => {
+  if (!csActive) return; csActive = false;
+  if (e.changedTouches[0].clientY - csY < -44) closeCrate();
+}, { passive: true });
+
+// ═══════════════════════════════════════════════════════════
+// DRAG HANDLE
+// ═══════════════════════════════════════════════════════════
+const dragHandle = document.getElementById('drag-handle');
+let dY = 0, dActive = false;
+const THRESH = 48;
+
+function dBegin(y) {
+  if (crateOpen) return;
+  dY = y; dActive = true;
+  ctrlPanel.style.transition = 'none';
+}
+function dMove(y) {
+  if (!dActive || crateOpen) return;
+  const dy = y - dY;
+  if (dy > 0) ctrlPanel.style.transform = `translateY(${Math.min(dy, ctrlWrap.offsetHeight)}px)`;
+}
+function dEnd(y) {
+  if (!dActive) return; dActive = false;
+  ctrlPanel.style.transition = '';
+  if (y - dY > THRESH) openCrate();
+  else ctrlPanel.style.transform = '';
+}
+
+dragHandle.addEventListener('touchstart',  e => dBegin(e.touches[0].clientY),         { passive: true });
+document.addEventListener('touchmove',     e => { if (!dActive) return; e.preventDefault(); dMove(e.touches[0].clientY); }, { passive: false });
+document.addEventListener('touchend',      e => dEnd(e.changedTouches[0].clientY),     { passive: true });
+document.addEventListener('touchcancel',   () => { if (!dActive) return; dActive = false; ctrlPanel.style.transition = ''; ctrlPanel.style.transform = ''; }, { passive: true });
+dragHandle.addEventListener('mousedown', e => { dBegin(e.clientY); e.preventDefault(); });
+document.addEventListener('mousemove',   e => dMove(e.clientY));
+document.addEventListener('mouseup',     e => dEnd(e.clientY));
+
+// ═══════════════════════════════════════════════════════════
+// DEVICE TILT
+// ═══════════════════════════════════════════════════════════
+if (window.DeviceOrientationEvent) {
+  window.addEventListener('deviceorientation', e => {
+    if (!e.gamma || !S.isPlaying) return;
+    const t = Math.max(-30, Math.min(30, e.gamma)) / 30;
+    discWrap.style.filter = `drop-shadow(0 0 ${(0.14 + Math.abs(t) * 0.14) * 80}px rgba(240,64,0,${0.14 + Math.abs(t) * 0.14}))`;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+function fmt(s) {
+  s = Math.max(0, s);
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+buildSegBar();
+setTrackMeta();
+setVol(0.70);
+updateProgress();
+document.getElementById('prog-tot').textContent = fmt(S.duration);
+
+</script>
+</body>
+</html>

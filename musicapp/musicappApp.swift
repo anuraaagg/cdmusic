@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct musicappApp: App {
+    init() {
+        GoogleFontsRegistrar.registerBundledFonts()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
