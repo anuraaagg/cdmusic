@@ -32,7 +32,7 @@ struct FigmaPlayerScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onAppear {
                 vm.updateFigmaLayoutScale(for: geo.size.width)
-                vm.showControlCentre()
+                vm.showControlCentre(animated: false)
             }
             .onChange(of: geo.size.width) { _, nw in vm.updateFigmaLayoutScale(for: nw) }
         }

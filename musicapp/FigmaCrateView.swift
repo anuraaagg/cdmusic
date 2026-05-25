@@ -67,13 +67,13 @@ struct FigmaCrateView: View {
     private var carousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: c.vinylGap * s) {
-                ForEach(Array(CrateCatalog.entries.enumerated()), id: \.element.id) { index, crate in
+                ForEach(0..<vm.vinylCarouselCount, id: \.self) { index in
                     let selected = vm.crateActiveIndex == index
                     let spinning = selected && vm.isPlaying
                     FigmaVinylView(
-                        sleeveIndex: crate.sleeveIndex,
+                        sleeveIndex: vm.crateSleeveIndex(for: index),
                         discArtwork: vm.crateDiscArtwork(for: index),
-                        labelColor: crate.accentUIKit(),
+                        labelColor: vm.crateAccentColor(for: index),
                         rotation: spinning ? vm.cdAngle : 0,
                         cellSize: vinylCell
                     )

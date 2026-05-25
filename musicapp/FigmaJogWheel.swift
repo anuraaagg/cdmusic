@@ -3,18 +3,18 @@ import UIKit
 
 // MARK: - FigmaJogWheel
 //
-// Faithful composite for Figma **`332:4666`** (knob component) layered with
-// `knob_outer` + `shadow_core` + tactile cap + jog markers.
+// Music transport only — Figma `332:4666`.
 //
-// Interaction:
-//   • **Inner cap / joystick zone** (~44 % knob diameter): drag translates the cap
-//     with a spring return (“jiggle” / stick deflection); tiny movement → tap
-//     is still play/pause.
-//   • **Outer platter**: classic DJ jog — angle tracking, inertia, scratches,
-//     skip bursts, detents.
+// | Zone            | Gesture              | Action                          |
+// |-----------------|----------------------|---------------------------------|
+// | Inner cap       | Tap                  | Play / pause                    |
+// | Inner cap       | Push ↑ / →           | Seek +10 s in current track     |
+// | Inner cap       | Push ↓ / ←           | Seek −10 s in current track     |
+// | Outer platter   | Rotate               | Scrub position + scratch CD     |
+// | Outer platter   | Flick                | Inertia scratch (CD keeps spin) |
+// | Outer platter   | Rotate ≥ 60°         | Skip to next / previous track   |
 //
-// Tap / play uses the inner **jiggle** gesture: lift with movement < `tapSlop`
-// triggers `onCenterTap` (see `wheelDrag`).
+// Does NOT control volume, library, crates panel, or settings.
 
 struct FigmaJogWheel<CapExtras: View>: View {
     var diameter: CGFloat = FigmaTheme.jogWheelDiameter
@@ -32,8 +32,14 @@ struct FigmaJogWheel<CapExtras: View>: View {
     @ViewBuilder var capOverlayAboveTactile: () -> CapExtras
 
     var onCenterTap: () -> Void
+    /// Outer platter — skip to next track after a large rotation.
     var onSnapForward: () -> Void
+    /// Outer platter — skip to previous track after a large rotation.
     var onSnapBack: () -> Void
+    /// Inner cap — nudge forward within the current track.
+    var onJiggleSeekForward: () -> Void
+    /// Inner cap — nudge backward within the current track.
+    var onJiggleSeekBack: () -> Void
     /// Called once when an outer-platter drag begins — use to capture seek anchor.
     var onJogBegin: () -> Void
     /// Degrees rotated from drag origin on the outer platter.
@@ -93,6 +99,8 @@ struct FigmaJogWheel<CapExtras: View>: View {
         onCenterTap: @escaping () -> Void,
         onSnapForward: @escaping () -> Void,
         onSnapBack: @escaping () -> Void,
+        onJiggleSeekForward: @escaping () -> Void,
+        onJiggleSeekBack: @escaping () -> Void,
         onJogBegin: @escaping () -> Void = {},
         onScrub: @escaping (Double) -> Void,
         onScrubEnd: @escaping () -> Void,
@@ -115,6 +123,8 @@ struct FigmaJogWheel<CapExtras: View>: View {
         self.onCenterTap = onCenterTap
         self.onSnapForward = onSnapForward
         self.onSnapBack = onSnapBack
+        self.onJiggleSeekForward = onJiggleSeekForward
+        self.onJiggleSeekBack = onJiggleSeekBack
         self.onJogBegin = onJogBegin
         self.onScrub = onScrub
         self.onScrubEnd = onScrubEnd
@@ -230,19 +240,19 @@ struct FigmaJogWheel<CapExtras: View>: View {
                     let tapSlop: CGFloat = 6
                     let jiggleAction: CGFloat = 10
                     if mag >= jiggleAction {
-                        // Inner stick: push toward edge → skip / scrub burst.
+                        // Inner stick — seek within the current track only.
                         if abs(value.translation.height) >= abs(value.translation.width) {
                             if value.translation.height < 0 {
-                                onSnapForward()
+                                onJiggleSeekForward()
                             } else {
-                                onSnapBack()
+                                onJiggleSeekBack()
                             }
                         } else if value.translation.width > 0 {
-                            onSnapForward()
+                            onJiggleSeekForward()
                         } else {
-                            onSnapBack()
+                            onJiggleSeekBack()
                         }
-                        if enableHaptics { hapticSnap.impactOccurred() }
+                        if enableHaptics { hapticSoft.impactOccurred(intensity: 0.55) }
                     } else if mag < tapSlop {
                         onCenterTap()
                     }
@@ -426,6 +436,8 @@ extension FigmaJogWheel where CapExtras == EmptyView {
         onCenterTap: @escaping () -> Void,
         onSnapForward: @escaping () -> Void,
         onSnapBack: @escaping () -> Void,
+        onJiggleSeekForward: @escaping () -> Void,
+        onJiggleSeekBack: @escaping () -> Void,
         onJogBegin: @escaping () -> Void = {},
         onScrub: @escaping (Double) -> Void,
         onScrubEnd: @escaping () -> Void,
@@ -448,6 +460,8 @@ extension FigmaJogWheel where CapExtras == EmptyView {
             onCenterTap: onCenterTap,
             onSnapForward: onSnapForward,
             onSnapBack: onSnapBack,
+            onJiggleSeekForward: onJiggleSeekForward,
+            onJiggleSeekBack: onJiggleSeekBack,
             onJogBegin: onJogBegin,
             onScrub: onScrub,
             onScrubEnd: onScrubEnd,
@@ -486,6 +500,8 @@ private struct StatefulPreview: View {
                 },
                 onSnapForward: { lastEvent = "SKIP →" },
                 onSnapBack: { lastEvent = "SKIP ←" },
+                onJiggleSeekForward: { lastEvent = "SEEK +10s" },
+                onJiggleSeekBack: { lastEvent = "SEEK −10s" },
                 onScrub: { _ in },
                 onScrubEnd: { },
                 onScratchDelta: { _, _ in },

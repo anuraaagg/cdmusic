@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Figma `305:2757` — carousel vinyl cell: sleeve (`Subtract`) · hub · spindle.
+/// Figma `356:2873` — carousel vinyl cell: full-bleed artwork · fixed centre hub.
 ///
-/// Layer order matches Figma DOM — sleeve artwork sits above the centre hub.
+/// Layer order matches Figma — rotating label art sits beneath the static hub
+/// (`356:2874` / `Group 1000006064`); only the artwork changes per slot.
 struct FigmaVinylView: View {
     let sleeveIndex: Int
     var discArtwork: UIImage?
@@ -11,30 +12,43 @@ struct FigmaVinylView: View {
     /// Figma carousel cell is 200 × 200 @402 reference.
     var cellSize: CGFloat = 200
 
-    /// Figma `305:2758` hub — 67.754 pt in a 200 pt cell.
+    /// Figma `356:2874` hub — 67.754 pt in a 200 pt cell, centred on the disc.
     private var hubDiameter: CGFloat { cellSize * 67.754 / 200 }
-    private var hubCenterX: CGFloat { cellSize * (65.65 + 67.754 / 2) / 200 }
-    private var hubCenterY: CGFloat { cellSize * (66.1 + 67.754 / 2) / 200 }
 
     var body: some View {
-        let cell = cellSize
-
         ZStack {
-            centerHub(cell: cell)
-
-            Image(uiImage: compositeDiscImage)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFill()
-                .frame(width: cell, height: cell)
+            artworkLayer
                 .rotationEffect(.degrees(rotation))
+
+            centerHub
         }
-        .frame(width: cell, height: cell)
+        .frame(width: cellSize, height: cellSize)
         .clipShape(Circle())
     }
 
-    /// Figma `305:2758` / `305:2759` — white hub + spindle glyph.
-    private func centerHub(cell: CGFloat) -> some View {
+    /// Figma `356:2878` (`Subtract`) — artwork fills the full 200 pt disc.
+    @ViewBuilder
+    private var artworkLayer: some View {
+        if let discArtwork {
+            Image(uiImage: discArtwork)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: cellSize, height: cellSize)
+        } else if let sleeve = UIImage(named: FigmaImage.vinylSleeve(sleeveIndex)) {
+            Image(uiImage: sleeve)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: cellSize, height: cellSize)
+        } else {
+            Color(uiColor: labelColor)
+                .frame(width: cellSize, height: cellSize)
+        }
+    }
+
+    /// Figma `356:2874` — white hub + spindle; does not rotate with the label art.
+    private var centerHub: some View {
         ZStack {
             Circle()
                 .fill(Color.white)
@@ -46,20 +60,11 @@ struct FigmaVinylView: View {
                 .scaledToFit()
                 .frame(width: hubDiameter * 0.22, height: hubDiameter * 0.22)
         }
-        .position(x: hubCenterX, y: hubCenterY)
         .allowsHitTesting(false)
-    }
-
-    private var compositeDiscImage: UIImage {
-        UIImageFigma.compositeVinylSleeve(
-            sleeveAssetName: FigmaImage.vinylSleeve(sleeveIndex),
-            artwork: discArtwork,
-            labelColor: labelColor
-        )
     }
 }
 
-#Preview("Vinyl cell — 200pt") {
+#Preview("Vinyl cell — 356:2873") {
     HStack(spacing: 8) {
         ForEach(0..<3, id: \.self) { i in
             FigmaVinylView(sleeveIndex: i, cellSize: 120)

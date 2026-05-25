@@ -114,7 +114,7 @@ final class MusicPlayerViewModel: ObservableObject {
     /// 0 = JAM strip only (CRATES visible); 1 = full control card (CRATES hidden behind panel).
     @Published var controlPanelRevealFraction: CGFloat = 1
     /// Tinted disc graphic for CD hero when library artwork is unavailable.
-    @Published var heroDiscPlaceholder: UIImage? = UIImageFigma.tintedDisc(CrateCatalog.entries[2].accentUIKit())
+    @Published var heroDiscPlaceholder: UIImage? = UIImageFigma.tintedDisc(CrateCatalog.entry(for: 2).accentUIKit())
 
     @Published var figmaLayoutScale: CGFloat = 1
 
@@ -142,6 +142,8 @@ final class MusicPlayerViewModel: ObservableObject {
     private var volumeObserver: NSKeyValueObservation?
     private var volumeHUDTimer: AnyCancellable?
     private var rotationVelocity: Double = 0.75
+    /// Guards against MPMusicPlayer briefly reporting `.paused` right after `play()`.
+    private var userRequestedPlayback = false
 
     private enum PlaybackStore {
         static let lastPersistentID = "figma.lastTrackPersistentID"
@@ -151,7 +153,7 @@ final class MusicPlayerViewModel: ObservableObject {
     // MARK: Init
 
     init() {
-        selectedSkin = CrateCatalog.entries[crateActiveIndex].skin
+        selectedSkin = CrateCatalog.entry(for: crateActiveIndex).skin
         requestAuthAndSetup()
     }
 
@@ -210,27 +212,36 @@ final class MusicPlayerViewModel: ObservableObject {
     /// Keep crate carousel + hero in sync with the track that is actually playing.
     private func syncCrateActiveIndex(for item: MPMediaItem) {
         guard let trackIdx = tracks.firstIndex(where: { $0.persistentID == item.persistentID }) else { return }
-        let crateIdx = trackIdx % CrateCatalog.count
-        guard crateActiveIndex != crateIdx else { return }
-        crateActiveIndex = crateIdx
-        let crate = CrateCatalog.entries[crateIdx]
-        applySkin(crate.skin)
-        heroDiscPlaceholder = UIImageFigma.tintedDisc(crate.accentUIKit())
+        guard crateActiveIndex != trackIdx else { return }
+        crateActiveIndex = trackIdx
+        applyCratePresentation(at: trackIdx)
     }
 
-    /// Maps each crate slot to a library row (cycles when library > 5 tracks).
+    /// Maps each crate slot to a library row.
     private func mediaItemForCrate(at index: Int) -> MPMediaItem? {
-        guard !tracks.isEmpty else { return nil }
-        return tracks[index % tracks.count]
+        guard tracks.indices.contains(index) else { return nil }
+        return tracks[index]
+    }
+
+    /// One vinyl per library track; demo catalog when library is empty.
+    var vinylCarouselCount: Int {
+        !tracks.isEmpty ? tracks.count : CrateCatalog.count
     }
 
     private func syncPlaybackState() {
-        let playing = player.playbackState == .playing
+        let state = player.playbackState
+        let playing = state == .playing
 
-        if player.nowPlayingItem != nil {
-            isPlaying = playing
-        } else if playing {
+        if playing {
+            userRequestedPlayback = false
             isPlaying = true
+        } else if state == .stopped {
+            userRequestedPlayback = false
+            isPlaying = false
+        } else if state == .paused {
+            if !userRequestedPlayback {
+                isPlaying = false
+            }
         }
 
         isShuffle = player.shuffleMode != .off
@@ -279,8 +290,8 @@ final class MusicPlayerViewModel: ObservableObject {
         setQueue(startingAt: item, autoplay: shouldPlay)
 
         if let idx = tracks.firstIndex(where: { $0.persistentID == storedID }) {
-            crateActiveIndex = idx % CrateCatalog.count
-            applyCratePresentation(at: crateActiveIndex)
+            crateActiveIndex = idx
+            applyCratePresentation(at: idx)
         }
         syncNowPlaying()
         syncPlaybackState()
@@ -324,16 +335,20 @@ final class MusicPlayerViewModel: ObservableObject {
     func togglePlay() {
         impact(.medium)
         if isPlaying {
+            userRequestedPlayback = false
             player.pause()
             isPlaying = false
             stopTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
         } else {
+            userRequestedPlayback = true
             InAppPlaybackAudio.activateSession()
             if player.nowPlayingItem == nil, let first = tracks.first {
                 setQueue(startingAt: first, autoplay: true)
                 syncNowPlaying()
-                syncPlaybackState()
+                isPlaying = true
+                startTimers()
+                InAppPlaybackAudio.suppressSystemNowPlaying()
                 return
             }
             player.play()
@@ -369,13 +384,11 @@ final class MusicPlayerViewModel: ObservableObject {
 
     /// When no MPMediaLibrary item is loaded, cycle crates / nudge time for jog + keys.
     private func demoSkip(forward: Bool) {
+        let count = max(1, vinylCarouselCount)
         if forward {
-            let next = (crateActiveIndex + 1) % max(1, CrateCatalog.entries.count)
-            loadCrateAsNowPlaying(at: next)
+            loadCrateAsNowPlaying(at: (crateActiveIndex + 1) % count)
         } else {
-            let count = max(1, CrateCatalog.entries.count)
-            let prev = (crateActiveIndex - 1 + count) % count
-            loadCrateAsNowPlaying(at: prev)
+            loadCrateAsNowPlaying(at: (crateActiveIndex - 1 + count) % count)
         }
         cdAngle += forward ? 90 : -90
     }
@@ -401,6 +414,15 @@ final class MusicPlayerViewModel: ObservableObject {
             player.currentPlaybackTime = t
         }
         currentTime = t
+    }
+
+    /// Jog inner stick — nudge playback within the current track.
+    func seek(bySeconds seconds: Double) {
+        guard duration > 0 else { return }
+        impact(.light)
+        let t = max(0, min(duration, currentTime + seconds))
+        seek(to: t / duration)
+        cdAngle += seconds * 3
     }
 
     func volumeUp()   { impact(.light); VolumeManager.shared.change(by:  0.10); flashVolumeHUD() }
@@ -489,10 +511,13 @@ final class MusicPlayerViewModel: ObservableObject {
     }
 
     func play(item: MPMediaItem) {
+        userRequestedPlayback = true
         InAppPlaybackAudio.activateSession()
         setQueue(startingAt: item, autoplay: true)
         syncNowPlaying()
-        syncPlaybackState()
+        isPlaying = true
+        startTimers()
+        InAppPlaybackAudio.suppressSystemNowPlaying()
     }
 
     func pauseForBackground() {
@@ -614,26 +639,30 @@ final class MusicPlayerViewModel: ObservableObject {
 
     /// Album art for a crate slot — from Apple Music when authorized.
     func crateArtwork(for index: Int) -> UIImage? {
-        guard !tracks.isEmpty else { return nil }
-        let item = tracks[index % tracks.count]
-        return item.artwork?.image(at: CGSize(width: 400, height: 400))
+        guard tracks.indices.contains(index) else { return nil }
+        return tracks[index].artwork?.image(at: CGSize(width: 400, height: 400))
     }
 
-    /// Disc fill for carousel vinyl — library artwork or accent-tinted placeholder.
+    /// Disc fill for carousel vinyl — library artwork fills the full label (`356:2878`).
     func crateDiscArtwork(for index: Int) -> UIImage? {
         crateArtwork(for: index)
     }
 
+    func crateSleeveIndex(for index: Int) -> Int {
+        CrateCatalog.sleeveForIndex(index)
+    }
+
+    func crateAccentColor(for index: Int) -> UIColor {
+        CrateCatalog.entry(for: index).accentUIKit()
+    }
+
     /// Active crate strip title — live track title when library loaded.
     func crateStripTitle(for index: Int) -> String {
-        guard CrateCatalog.entries.indices.contains(index) else { return "SONG NAME HERE" }
-        if !tracks.isEmpty {
-            let item = tracks[index % tracks.count]
-            if let title = item.title, !title.isEmpty {
-                return title.uppercased()
-            }
+        if tracks.indices.contains(index),
+           let title = tracks[index].title, !title.isEmpty {
+            return title.uppercased()
         }
-        return CrateCatalog.entries[index].title.uppercased()
+        return CrateCatalog.entry(for: index).title.uppercased()
     }
 
     func updateFigmaLayoutScale(for width: CGFloat) {
@@ -641,8 +670,13 @@ final class MusicPlayerViewModel: ObservableObject {
     }
 
     /// Brings the full control card back over CRATES (`305:3451` default state).
-    func showControlCentre() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+    func showControlCentre(animated: Bool = true) {
+        guard controlPanelRevealFraction < 0.999 else { return }
+        if animated {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                controlPanelRevealFraction = 1
+            }
+        } else {
             controlPanelRevealFraction = 1
         }
     }
@@ -656,7 +690,7 @@ final class MusicPlayerViewModel: ObservableObject {
     }
 
     func loadCrateAsNowPlaying(at index: Int) {
-        guard CrateCatalog.entries.indices.contains(index) else { return }
+        guard index >= 0, index < vinylCarouselCount else { return }
         impact(.medium)
         applyCratePresentation(at: index)
 
@@ -665,7 +699,7 @@ final class MusicPlayerViewModel: ObservableObject {
             return
         }
 
-        let crate = CrateCatalog.entries[index]
+        let crate = CrateCatalog.entry(for: index)
         trackTitle = crate.title
         artistName = crate.artist
         albumTitle = ""
@@ -677,9 +711,9 @@ final class MusicPlayerViewModel: ObservableObject {
     }
 
     private func applyCratePresentation(at index: Int) {
-        guard CrateCatalog.entries.indices.contains(index) else { return }
+        guard index >= 0, index < vinylCarouselCount else { return }
         crateActiveIndex = index
-        let crate = CrateCatalog.entries[index]
+        let crate = CrateCatalog.entry(for: index)
         applySkin(crate.skin)
         heroDiscPlaceholder = UIImageFigma.tintedDisc(crate.accentUIKit())
         albumArtwork = crateArtwork(for: index)
@@ -753,8 +787,8 @@ final class MusicPlayerViewModel: ObservableObject {
     var effectiveHeroUIImage: UIImage? { albumArtwork ?? heroDiscPlaceholder }
 
     var currentCrateEntry: CrateCatalogEntry? {
-        guard CrateCatalog.entries.indices.contains(crateActiveIndex) else { return nil }
-        return CrateCatalog.entries[crateActiveIndex]
+        guard crateActiveIndex >= 0, crateActiveIndex < vinylCarouselCount else { return nil }
+        return CrateCatalog.entry(for: crateActiveIndex)
     }
 
     /// Figma `305:3124`–`305:3128` placeholders when idle; live metadata while playing.
@@ -781,8 +815,8 @@ final class MusicPlayerViewModel: ObservableObject {
            let idx = tracks.firstIndex(where: { $0.persistentID == current.persistentID }) {
             return "\(idx + 1)-\(tracks.count)"
         }
-        let i = max(1, min(crateActiveIndex + 1, CrateCatalog.count))
-        return "\(i)-\(CrateCatalog.count)"
+        let i = max(1, min(crateActiveIndex + 1, vinylCarouselCount))
+        return "\(i)-\(vinylCarouselCount)"
     }
 
     /// Aliases consumed by `FigmaCDHeroView`.

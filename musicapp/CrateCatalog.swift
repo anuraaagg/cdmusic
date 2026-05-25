@@ -29,17 +29,28 @@ struct CrateCatalogEntry: Identifiable, Hashable {
 }
 
 enum CrateCatalog {
+    /// Five sleeve PNG templates cycle when library art is unavailable (`vinyl_sleeve_0`…`4`).
+    static let sleeveTemplateCount = 5
+
     static let entries: [CrateCatalogEntry] = [
         CrateCatalogEntry(id: 0, title: "MIDNIGHT CASCADE", artist: "NEON DRIFT", genrePlaceholder: "ELECTRONIC", sleeveIndex: 0, skin: .normal, accentHex: 0x7144B0),
         CrateCatalogEntry(id: 1, title: "SOLAR WINDS", artist: "PULSE ECHO", genrePlaceholder: "SYNTH", sleeveIndex: 1, skin: .led, accentHex: 0xB83121),
         CrateCatalogEntry(id: 2, title: "DEEP CURRENT", artist: "FLUX FIELD", genrePlaceholder: "AMB", sleeveIndex: 2, skin: .crt, accentHex: 0x174EA8),
         CrateCatalogEntry(id: 3, title: "AMBER STATIC", artist: "THE GROOVE", genrePlaceholder: "FUNK", sleeveIndex: 3, skin: .vinyl, accentHex: 0xB07010),
         CrateCatalogEntry(id: 4, title: "NEON RAIN", artist: "CIRCUIT", genrePlaceholder: "WAVE", sleeveIndex: 4, skin: .normal, accentHex: 0x0F8759),
+        CrateCatalogEntry(id: 5, title: "PHASE SHIFT", artist: "ZERO ONE", genrePlaceholder: "TECHNO", sleeveIndex: 0, skin: .led, accentHex: 0xA11759),
+        CrateCatalogEntry(id: 6, title: "STATIC DREAMS", artist: "ANALOG SOUL", genrePlaceholder: "DREAM", sleeveIndex: 1, skin: .crt, accentHex: 0x296999),
+        CrateCatalogEntry(id: 7, title: "WARM MACHINE", artist: "LOW HUM", genrePlaceholder: "SOUL", sleeveIndex: 2, skin: .vinyl, accentHex: 0x8F471F),
+        CrateCatalogEntry(id: 8, title: "NIGHT CIRCUIT", artist: "SUB LAYER", genrePlaceholder: "DUB", sleeveIndex: 3, skin: .normal, accentHex: 0x384799),
     ]
 
     static var count: Int { entries.count }
 
+    static func entry(for index: Int) -> CrateCatalogEntry {
+        entries[index % entries.count]
+    }
+
     static func sleeveForIndex(_ i: Int) -> Int {
-        entries[i % entries.count].sleeveIndex
+        i % sleeveTemplateCount
     }
 }

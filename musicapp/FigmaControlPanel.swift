@@ -48,6 +48,7 @@ struct FigmaControlPanel: View {
         )
         .offset(y: slideOffset)
         .animation(isDragging ? nil : .spring(response: 0.38, dampingFraction: 0.88), value: slideOffset)
+        .animation(nil, value: vm.isPlaying)
     }
 
     // MARK: - Drag target — groove + JAM row
@@ -186,6 +187,16 @@ struct FigmaControlPanel: View {
             },
             onSnapForward: { vm.skipNext() },
             onSnapBack: { vm.skipPrevious() },
+            onJiggleSeekForward: {
+                vm.seek(bySeconds: 10)
+                scrubLabel = vm.currentTimeString
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { scrubLabel = nil }
+            },
+            onJiggleSeekBack: {
+                vm.seek(bySeconds: -10)
+                scrubLabel = vm.currentTimeString
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { scrubLabel = nil }
+            },
             onJogBegin: { seekAnchor = vm.progress },
             onScrub: { delta in
                 vm.seek(to: min(1, max(0, seekAnchor + delta / 360.0)))
