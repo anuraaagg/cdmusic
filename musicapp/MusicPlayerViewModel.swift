@@ -142,6 +142,13 @@ final class MusicPlayerViewModel: ObservableObject {
     private var volumeObserver: NSKeyValueObservation?
     private var volumeHUDTimer: AnyCancellable?
     private var rotationVelocity: Double = 0.75
+    /// Inner-joystick drag / release — keeps the hero CD spinning while paused.
+    private var jogBurstUntil: Date?
+    private var isJogDragging = false
+
+    private var isJogSpinActive: Bool {
+        isJogDragging || (jogBurstUntil.map { Date() < $0 } ?? false)
+    }
     /// Guards against MPMusicPlayer briefly reporting `.paused` right after `play()`.
     private var userRequestedPlayback = false
 
@@ -255,7 +262,7 @@ final class MusicPlayerViewModel: ObservableObject {
         if isPlaying {
             startTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
-        } else {
+        } else if !isJogSpinActive {
             stopTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
         }
@@ -302,7 +309,14 @@ final class MusicPlayerViewModel: ObservableObject {
         if tracks.isEmpty {
             player.setQueue(with: MPMediaItemCollection(items: [item]))
         } else if let start = tracks.firstIndex(where: { $0.persistentID == item.persistentID }) {
-            let queue = Array(tracks[start...]) + Array(tracks[..<start])
+            // Avoid copying the entire library into the queue — large collections can freeze or crash.
+            let queueCapacity = 250
+            let end = min(tracks.count, start + queueCapacity)
+            var queue = Array(tracks[start..<end])
+            if queue.count < queueCapacity, start > 0 {
+                let headCount = min(start, queueCapacity - queue.count)
+                queue.append(contentsOf: tracks[0..<headCount])
+            }
             player.setQueue(with: MPMediaItemCollection(items: queue))
         } else {
             player.setQueue(with: MPMediaItemCollection(items: [item]))
@@ -422,7 +436,42 @@ final class MusicPlayerViewModel: ObservableObject {
         impact(.light)
         let t = max(0, min(duration, currentTime + seconds))
         seek(to: t / duration)
-        cdAngle += seconds * 3
+        beginJogSpinBurst(forward: seconds >= 0, intensity: min(1, abs(seconds) / 10))
+    }
+
+    /// Live hero CD spin while the inner joystick is held off-centre.
+    func updateJogDragSpin(translation: CGSize, maxDeflection: CGFloat) {
+        isJogDragging = true
+        let mag = min(1, hypot(translation.width, translation.height) / max(maxDeflection, 1))
+        guard mag > 0.04 else {
+            rotationVelocity = 0
+            return
+        }
+
+        let forward = abs(translation.height) >= abs(translation.width)
+            ? translation.height < 0
+            : translation.width > 0
+        let sign: Double = forward ? 1 : -1
+        rotationVelocity = sign * (2.5 + mag * 11.0)
+        cdAngle += sign * mag * 2.2
+        shimmerPhase += Double(mag) * 1.4
+        startTimers()
+    }
+
+    func endJogDragSpin() {
+        isJogDragging = false
+        if !isPlaying, !isJogSpinActive {
+            rotationVelocity = 0
+            stopTimers()
+        }
+    }
+
+    private func beginJogSpinBurst(forward: Bool, intensity: CGFloat = 1) {
+        let sign: Double = forward ? 1 : -1
+        rotationVelocity = sign * (8.0 + 4.0 * Double(intensity))
+        jogBurstUntil = Date().addingTimeInterval(0.6)
+        shimmerPhase += 18
+        startTimers()
     }
 
     func volumeUp()   { impact(.light); VolumeManager.shared.change(by:  0.10); flashVolumeHUD() }
@@ -640,7 +689,8 @@ final class MusicPlayerViewModel: ObservableObject {
     /// Album art for a crate slot — from Apple Music when authorized.
     func crateArtwork(for index: Int) -> UIImage? {
         guard tracks.indices.contains(index) else { return nil }
-        return tracks[index].artwork?.image(at: CGSize(width: 400, height: 400))
+        let side = FigmaTheme.Crate.vinylSide * figmaLayoutScale
+        return tracks[index].artwork?.image(at: CGSize(width: side, height: side))
     }
 
     /// Disc fill for carousel vinyl — library artwork fills the full label (`356:2878`).
@@ -673,9 +723,11 @@ final class MusicPlayerViewModel: ObservableObject {
     func showControlCentre(animated: Bool = true) {
         guard controlPanelRevealFraction < 0.999 else { return }
         if animated {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            let v = (1 - controlPanelRevealFraction) * 4.5
+            withAnimation(PanelDrawerPhysics.panelSlideAnimation(initialVelocity: v)) {
                 controlPanelRevealFraction = 1
             }
+            playDrawerLatchSound()
         } else {
             controlPanelRevealFraction = 1
         }
@@ -727,15 +779,34 @@ final class MusicPlayerViewModel: ObservableObject {
                 .autoconnect()
                 .sink { [weak self] _ in
                     guard let self else { return }
-                    if !self.isScratching && self.isPlaying {
-                        self.cdAngle += self.rotationVelocity
-                        self.shimmerPhase += 0.70
-                        let cruise = 0.75
-                        if abs(self.rotationVelocity - cruise) > 0.005 {
-                            self.rotationVelocity += (cruise - self.rotationVelocity) * 0.04
-                        } else {
-                            self.rotationVelocity = cruise
+                    guard !self.isScratching else { return }
+
+                    let jogBursting = self.jogBurstUntil.map { Date() < $0 } ?? false
+                    guard self.isPlaying || self.isJogDragging || jogBursting else { return }
+
+                    self.cdAngle += self.rotationVelocity
+                    self.shimmerPhase += abs(self.rotationVelocity) * 0.22 + (self.isPlaying ? 0.70 : 0)
+
+                    if self.isJogDragging {
+                        return
+                    }
+
+                    if jogBursting {
+                        self.rotationVelocity *= 0.88
+                        if abs(self.rotationVelocity) < 0.35 {
+                            self.jogBurstUntil = nil
+                            self.rotationVelocity = self.isPlaying ? 0.75 : 0
+                            if !self.isPlaying { self.stopTimers() }
                         }
+                        return
+                    }
+
+                    guard self.isPlaying else { return }
+                    let cruise = 0.75
+                    if abs(self.rotationVelocity - cruise) > 0.005 {
+                        self.rotationVelocity += (cruise - self.rotationVelocity) * 0.04
+                    } else {
+                        self.rotationVelocity = cruise
                     }
                 }
         }
@@ -817,6 +888,34 @@ final class MusicPlayerViewModel: ObservableObject {
         }
         let i = max(1, min(crateActiveIndex + 1, vinylCarouselCount))
         return "\(i)-\(vinylCarouselCount)"
+    }
+
+    /// Crate drawer counter — `1-N` while the panel reveals the carousel.
+    var jamCratesCaption: String {
+        let n = max(1, vinylCarouselCount)
+        return "1-\(n)"
+    }
+
+    /// JAM strip crossfade: track metadata when closed, CRATES + count as the drawer opens.
+    func jamToolbarForDrawer(revealFraction: CGFloat) -> (status: String, counter: String) {
+        let openAmount = max(0, min(1, 1 - revealFraction))
+        if openAmount < 0.12 {
+            return (jamStatusLine, jamRangeCaption)
+        }
+        if openAmount > 0.42 {
+            return ("crates", jamCratesCaption)
+        }
+        return openAmount > 0.26 ? ("crates", jamCratesCaption) : (jamStatusLine, jamRangeCaption)
+    }
+
+    func playDrawerSlideSound() {
+        guard isSoundEnabled else { return }
+        DrawerMechanicalSound.shared.playSlideOpen()
+    }
+
+    func playDrawerLatchSound() {
+        guard isSoundEnabled else { return }
+        DrawerMechanicalSound.shared.playLatchClose()
     }
 
     /// Aliases consumed by `FigmaCDHeroView`.

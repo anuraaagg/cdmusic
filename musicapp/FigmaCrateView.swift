@@ -11,21 +11,25 @@ struct FigmaCrateView: View {
     var availableHeight: CGFloat? = nil
     /// Height of the control panel overlay (JAM chrome) — content sits above this.
     var jamBarReserve: CGFloat = 0
+    var cardWidth: CGFloat = FigmaTheme.designWidth
     var scale: CGFloat = 1
+    var tier: FigmaDeviceTier = .large
     var onCollapsePanel: () -> Void = {}
 
     private var c: FigmaTheme.Crate.Type { FigmaTheme.Crate.self }
     private var s: CGFloat { scale }
 
-    private var vinylCell: CGFloat { c.vinylSide * s }
+    private var outerPad: CGFloat { c.resolvedOuterPadding(tier: tier) }
+
+    private var vinylCell: CGFloat {
+        c.vinylCellSize(cardWidth: cardWidth, scale: s, tier: tier)
+    }
 
     private var effectiveHeight: CGFloat {
         availableHeight ?? FigmaTheme.panelExpandedH * s
     }
 
     var body: some View {
-        let outerPad = c.outerPadding * s
-
         VStack(spacing: 0) {
             innerCreamBlock
                 .padding(.horizontal, outerPad)
@@ -64,24 +68,50 @@ struct FigmaCrateView: View {
 
     // MARK: - Vinyl carousel (`305:2756`)
 
+    @StateObject private var scrollMotion = CrateScrollMotionTracker()
+    @State private var carouselViewportWidth: CGFloat = 0
+
     private var carousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: c.vinylGap * s) {
+            LazyHStack(spacing: c.vinylGap * s) {
                 ForEach(0..<vm.vinylCarouselCount, id: \.self) { index in
                     let selected = vm.crateActiveIndex == index
                     let spinning = selected && vm.isPlaying
-                    FigmaVinylView(
+                    let parallax = scrollMotion.parallaxNorm(
+                        index: index,
+                        cellSize: vinylCell,
+                        gap: c.vinylGap * s,
+                        leadingPad: outerPad,
+                        viewportWidth: carouselViewportWidth
+                    )
+                    CrateVinylRippleView(
                         sleeveIndex: vm.crateSleeveIndex(for: index),
                         discArtwork: vm.crateDiscArtwork(for: index),
                         labelColor: vm.crateAccentColor(for: index),
                         rotation: spinning ? vm.cdAngle : 0,
-                        cellSize: vinylCell
+                        cellSize: vinylCell,
+                        parallaxNorm: parallax,
+                        scrollVelocity: scrollMotion.velocityX,
+                        onTap: { vm.crateVinylTapped(at: index) }
                     )
-                    .contentShape(Rectangle())
-                    .onTapGesture { vm.crateVinylTapped(at: index) }
                 }
             }
-            .padding(.horizontal, c.outerPadding * s)
+            .padding(.horizontal, outerPad)
+        }
+        .coordinateSpace(name: CrateScrollSpace.name)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.x
+        } action: { _, newOffset in
+            scrollMotion.ingest(contentOffsetX: newOffset)
+        }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { carouselViewportWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, width in
+                        carouselViewportWidth = width
+                    }
+            }
         }
         .frame(height: vinylCell)
     }
@@ -125,6 +155,7 @@ struct FigmaCrateView: View {
 // MARK: - FigmaCrateHeader
 //
 // Figma `305:2743` / `305:2744` / `305:2745` — cream header inside the crate box.
+// Row `305:2745`: Press logo (left) · CRATES title (centre) · bordered X (right).
 
 struct FigmaCrateHeader: View {
     var scale: CGFloat = 1
@@ -135,25 +166,21 @@ struct FigmaCrateHeader: View {
     var body: some View {
         let s = scale
         let pad = c.headerPadding * s
+        let rowH = c.headerRowHeight * s
 
         VStack(spacing: c.headerInnerGap * s) {
             ZStack {
-                HStack(spacing: 0) {
-                    Image(FigmaImage.cratesLogo)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: c.logoWidth * s, height: c.logoHeight * s, alignment: .leading)
-                        .accessibilityLabel("Press")
-
+                HStack(alignment: .center, spacing: 0) {
+                    pressLogo(scale: s)
                     Spacer(minLength: 0)
-
                     closeButton(scale: s)
                 }
+                .frame(height: rowH)
 
                 Text("CRATES")
                     .font(FigmaFont.libraryTitle(c.titleFontSize * s))
                     .foregroundStyle(FigmaTheme.textDark)
+                    .allowsHitTesting(false)
             }
 
             Rectangle()
@@ -164,22 +191,29 @@ struct FigmaCrateHeader: View {
         .frame(maxWidth: .infinity, alignment: .top)
     }
 
-    private func closeButton(scale s: CGFloat) -> some View {
-        Button(action: onClose) {
-            ZStack {
-                Rectangle()
-                    .stroke(
-                        Color(red: 0.24, green: 0.24, blue: 0.24),
-                        lineWidth: max(c.closeBorderWidth * s, FigmaTheme.snapToPixel(c.closeBorderWidth * s))
-                    )
-                    .frame(width: c.closeButtonSize * s, height: c.closeButtonSize * s)
+    /// Figma `305:2745` — bundled `crates_logo` PNG (Press wordmark).
+    private func pressLogo(scale s: CGFloat) -> some View {
+        Image(FigmaImage.cratesLogo)
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: c.logoWidth * s, height: c.logoHeight * s, alignment: .leading)
+            .accessibilityLabel("Press")
+    }
 
-                Image(FigmaImage.cratesClose)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 7.2 * s, height: 7.2 * s)
-            }
+    /// Figma `305:2745` — bundled `crates_close` SVG (24 pt bordered X).
+    private func closeButton(scale s: CGFloat) -> some View {
+        let box = c.closeButtonSize * s
+
+        return Button(action: onClose) {
+            Image(FigmaImage.cratesClose)
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: box, height: box)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Close crates")

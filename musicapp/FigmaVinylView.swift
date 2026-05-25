@@ -12,8 +12,8 @@ struct FigmaVinylView: View {
     /// Figma carousel cell is 200 × 200 @402 reference.
     var cellSize: CGFloat = 200
 
-    /// Figma `356:2874` hub — 67.754 pt in a 200 pt cell, centred on the disc.
-    private var hubDiameter: CGFloat { cellSize * 67.754 / 200 }
+    /// Slightly smaller than Figma `356:2874` (67.754 / 200) so sleeve titles stay visible.
+    private var hubDiameter: CGFloat { cellSize * 0.28 }
 
     var body: some View {
         ZStack {
@@ -33,13 +33,14 @@ struct FigmaVinylView: View {
             Image(uiImage: discArtwork)
                 .resizable()
                 .interpolation(.high)
-                .scaledToFill()
+                .scaledToFit()
                 .frame(width: cellSize, height: cellSize)
+                .background(Color(uiColor: labelColor))
         } else if let sleeve = UIImage(named: FigmaImage.vinylSleeve(sleeveIndex)) {
             Image(uiImage: sleeve)
                 .resizable()
                 .interpolation(.high)
-                .scaledToFill()
+                .scaledToFit()
                 .frame(width: cellSize, height: cellSize)
         } else {
             Color(uiColor: labelColor)

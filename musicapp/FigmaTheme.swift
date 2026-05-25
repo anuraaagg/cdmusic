@@ -105,17 +105,45 @@ enum FigmaTheme {
         /// Body block (`305:2755` `gap-[16px]` · `pb-[24px]`).
         static let bodySectionGap: CGFloat = 16
         static let bodyBottomPadding: CGFloat = 24
+        /// Figma artboard disc diameter — display size is smaller so label text clears the hub.
         static let vinylSide: CGFloat = 200
+        /// Scales carousel discs down from the 200 pt Figma spec (~156 pt @402).
+        static let vinylDisplayScale: CGFloat = 0.78
         static let vinylGap: CGFloat = 6.154
+        /// Roughly how many discs should peek in the carousel at once (`305:2756`).
+        static let vinylVisibleCount: CGFloat = 2.35
+
+        /// Figma `305:2741` uses a fixed 12 pt grey inset — do not shrink on compact widths.
+        static func resolvedOuterPadding(tier: FigmaDeviceTier) -> CGFloat {
+            switch tier {
+            case .small, .compact: outerPadding
+            case .large: outerPadding
+            }
+        }
+
+        /// Carousel cell size — capped so ~2⅓ discs are visible and titles stay legible.
+        static func vinylCellSize(cardWidth: CGFloat, scale: CGFloat, tier: FigmaDeviceTier) -> CGFloat {
+            let outer = resolvedOuterPadding(tier: tier)
+            let innerContent = cardWidth - outer * 2
+            let track = innerContent - outer * 2
+            let gap = vinylGap * scale
+            let fit = (track - gap * (vinylVisibleCount - 1)) / vinylVisibleCount
+            let design = vinylSide * scale * vinylDisplayScale
+            return max(120, min(design, fit))
+        }
         /// Song strip (`305:2794` `w-[362px]`).
         static let stripWidth: CGFloat = 362
         static let stripCellPadding: CGFloat = 12
         static let stripIconGlyphSize: CGFloat = 14
         static let closeButtonSize: CGFloat = 24
         static let closeBorderWidth: CGFloat = 0.32
+        /// Figma `305:2745` close glyph — `8.04853` pt art in a 24 pt tap target.
+        static let closeIconSize: CGFloat = 8.04853
         static let logoWidth: CGFloat = 48
-        static let logoHeight: CGFloat = 20
+        static let logoHeight: CGFloat = 22
         static let titleFontSize: CGFloat = 18
+        /// Title row height inside `305:2745`.
+        static let headerRowHeight: CGFloat = 24
     }
 
     /// Figma node `332:4641` — full open control sheet @402pt wide.

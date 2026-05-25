@@ -18,6 +18,8 @@ struct FigmaControlPanel: View {
     @State private var seekAnchor = 0.0
     @State private var dragAnchor: CGFloat = 0
     @State private var isDragging = false
+    @State private var drawerSettledOpen = false
+    @State private var slideSoundPlayedThisGesture = false
 
     private var s: CGFloat { vm.figmaLayoutScale }
 
@@ -47,7 +49,7 @@ struct FigmaControlPanel: View {
                 .allowsHitTesting(false)
         )
         .offset(y: slideOffset)
-        .animation(isDragging ? nil : .spring(response: 0.38, dampingFraction: 0.88), value: slideOffset)
+        .animation(isDragging ? nil : PanelDrawerPhysics.panelSlideAnimation(), value: slideOffset)
         .animation(nil, value: vm.isPlaying)
     }
 
@@ -72,11 +74,17 @@ struct FigmaControlPanel: View {
                 if !isDragging {
                     isDragging = true
                     dragAnchor = revealFraction
-                    vm.impact(.rigid)
+                    drawerSettledOpen = revealFraction < 0.08
+                    slideSoundPlayedThisGesture = false
+                    vm.impact(.soft)
                 }
                 guard maxSlide > 0 else { return }
                 let delta = value.translation.height / maxSlide
-                let next = max(0, min(1, dragAnchor - delta))
+                let next = PanelDrawerPhysics.resistedDragFraction(anchor: dragAnchor, delta: delta)
+                if !slideSoundPlayedThisGesture, next < 0.72, dragAnchor >= 0.72 {
+                    slideSoundPlayedThisGesture = true
+                    vm.playDrawerSlideSound()
+                }
                 var t = Transaction()
                 t.disablesAnimations = true
                 withTransaction(t) {
@@ -86,11 +94,20 @@ struct FigmaControlPanel: View {
             .onEnded { value in
                 isDragging = false
                 let flick = value.predictedEndTranslation.height - value.translation.height
-                var target: CGFloat = revealFraction >= 0.45 ? 1 : 0
-                if flick > 80 { target = 0 }
-                if flick < -80 { target = 1 }
+                let settle = PanelDrawerPhysics.settleTarget(
+                    revealFraction: revealFraction,
+                    flickPixels: flick,
+                    maxSlide: maxSlide
+                )
+                let target = settle.target
+                if target == 0, !drawerSettledOpen, !slideSoundPlayedThisGesture {
+                    vm.playDrawerSlideSound()
+                } else if target == 1, revealFraction < 0.92 {
+                    vm.playDrawerLatchSound()
+                }
+                drawerSettledOpen = target < 0.08
                 vm.selectionChanged()
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                withAnimation(PanelDrawerPhysics.settleAnimation(initialVelocity: settle.initialVelocity)) {
                     revealFraction = target
                 }
             }
@@ -105,9 +122,10 @@ struct FigmaControlPanel: View {
     }
 
     private var jamToolbar: some View {
-        FigmaJamToolbar(
-            statusText: scrubLabel ?? vm.jamStatusLine,
-            counterText: vm.jamRangeCaption,
+        let drawerJam = vm.jamToolbarForDrawer(revealFraction: revealFraction)
+        return FigmaJamToolbar(
+            statusText: scrubLabel ?? drawerJam.status,
+            counterText: drawerJam.counter,
             scale: s,
             isPlaying: vm.isPlaying,
             onDialTap: { vm.openLibrary() }
@@ -196,6 +214,12 @@ struct FigmaControlPanel: View {
                 vm.seek(bySeconds: -10)
                 scrubLabel = vm.currentTimeString
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { scrubLabel = nil }
+            },
+            onJiggleDrag: { offset, maxJ in
+                vm.updateJogDragSpin(translation: offset, maxDeflection: maxJ)
+            },
+            onJiggleDragEnd: {
+                vm.endJogDragSpin()
             },
             onJogBegin: { seekAnchor = vm.progress },
             onScrub: { delta in

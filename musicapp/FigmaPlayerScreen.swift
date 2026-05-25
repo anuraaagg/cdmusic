@@ -51,7 +51,9 @@ struct FigmaPlayerScreen: View {
                 vm: vm,
                 availableHeight: layout.panelSlotHeight,
                 jamBarReserve: layout.collapsedPanelHeight,
+                cardWidth: layout.cardWidth,
                 scale: layout.scale,
+                tier: layout.tier,
                 onCollapsePanel: { vm.showControlCentre() }
             )
             .allowsHitTesting(vm.controlPanelRevealFraction < 0.35)

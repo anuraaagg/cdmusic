@@ -72,11 +72,9 @@ struct FigmaLibrarySheet: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 FigmaSheetTopGroove(scale: s)
-                    .padding(.top, 12 * s)
                     .accessibilityIdentifier("library.groove")
 
                 header
-                    .padding(.top, 24 * s)
 
                 searchStrip
                     .padding(.top, 24 * s)
@@ -126,40 +124,47 @@ struct FigmaLibrarySheet: View {
     // MARK: - Header (`301:2343`)
 
     private var header: some View {
-        VStack(spacing: 8 * s) {
-            HStack {
-                Image(FigmaImage.cratesLogo)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 48 * s, height: 20 * s)
+        let c = FigmaTheme.Crate.self
+        let rowH = c.headerRowHeight * s
 
-                Spacer(minLength: 0)
+        return VStack(spacing: c.headerInnerGap * s) {
+            ZStack {
+                HStack(alignment: .center, spacing: 0) {
+                    Image(FigmaImage.cratesLogo)
+                        .renderingMode(.original)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: c.logoWidth * s, height: c.logoHeight * s, alignment: .leading)
+                        .accessibilityLabel("Press")
 
-                Button(action: dismiss) {
-                    ZStack {
-                        Rectangle()
-                            .stroke(Color(red: 0.24, green: 0.24, blue: 0.24), lineWidth: 0.32 * s)
-                            .frame(width: 24 * s, height: 24 * s)
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9 * s, weight: .medium))
-                            .foregroundStyle(FigmaTheme.textDark)
+                    Spacer(minLength: 0)
+
+                    Button(action: dismiss) {
+                        Image(FigmaImage.cratesClose)
+                            .renderingMode(.original)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: c.closeButtonSize * s, height: c.closeButtonSize * s)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close library")
+                    .accessibilityIdentifier("library.close")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close library")
-                .accessibilityIdentifier("library.close")
-            }
-            .overlay {
+                .frame(height: rowH)
+
                 Text("LIBRARY")
-                    .font(FigmaFont.libraryTitle(18 * s))
+                    .font(FigmaFont.libraryTitle(c.titleFontSize * s))
                     .foregroundStyle(FigmaTheme.textDark)
+                    .allowsHitTesting(false)
             }
             .padding(.horizontal, lib.headerHPadding * s)
 
             Rectangle()
                 .fill(FigmaTheme.textDark.opacity(0.75))
-                .frame(height: 2 * s)
+                .frame(height: c.dividerHeight * s)
                 .padding(.horizontal, lib.headerHPadding * s)
         }
     }

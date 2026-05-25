@@ -40,6 +40,10 @@ struct FigmaJogWheel<CapExtras: View>: View {
     var onJiggleSeekForward: () -> Void
     /// Inner cap — nudge backward within the current track.
     var onJiggleSeekBack: () -> Void
+    /// Inner cap — live drag offset for hero CD spin preview.
+    var onJiggleDrag: (CGSize, CGFloat) -> Void
+    /// Inner cap — drag ended / springing home.
+    var onJiggleDragEnd: () -> Void
     /// Called once when an outer-platter drag begins — use to capture seek anchor.
     var onJogBegin: () -> Void
     /// Degrees rotated from drag origin on the outer platter.
@@ -101,6 +105,8 @@ struct FigmaJogWheel<CapExtras: View>: View {
         onSnapBack: @escaping () -> Void,
         onJiggleSeekForward: @escaping () -> Void,
         onJiggleSeekBack: @escaping () -> Void,
+        onJiggleDrag: @escaping (CGSize, CGFloat) -> Void = { _, _ in },
+        onJiggleDragEnd: @escaping () -> Void = {},
         onJogBegin: @escaping () -> Void = {},
         onScrub: @escaping (Double) -> Void,
         onScrubEnd: @escaping () -> Void,
@@ -125,6 +131,8 @@ struct FigmaJogWheel<CapExtras: View>: View {
         self.onSnapBack = onSnapBack
         self.onJiggleSeekForward = onJiggleSeekForward
         self.onJiggleSeekBack = onJiggleSeekBack
+        self.onJiggleDrag = onJiggleDrag
+        self.onJiggleDragEnd = onJiggleDragEnd
         self.onJogBegin = onJogBegin
         self.onScrub = onScrub
         self.onScrubEnd = onScrubEnd
@@ -300,9 +308,11 @@ struct FigmaJogWheel<CapExtras: View>: View {
             }
         }
         jiggleDisplay = v
+        onJiggleDrag(v, maxJ)
     }
 
     private func springJiggleHome() {
+        onJiggleDragEnd()
         withAnimation(.spring(response: 0.44, dampingFraction: 0.72)) {
             jiggleDisplay = .zero
         }
@@ -438,6 +448,8 @@ extension FigmaJogWheel where CapExtras == EmptyView {
         onSnapBack: @escaping () -> Void,
         onJiggleSeekForward: @escaping () -> Void,
         onJiggleSeekBack: @escaping () -> Void,
+        onJiggleDrag: @escaping (CGSize, CGFloat) -> Void = { _, _ in },
+        onJiggleDragEnd: @escaping () -> Void = {},
         onJogBegin: @escaping () -> Void = {},
         onScrub: @escaping (Double) -> Void,
         onScrubEnd: @escaping () -> Void,
@@ -462,6 +474,8 @@ extension FigmaJogWheel where CapExtras == EmptyView {
             onSnapBack: onSnapBack,
             onJiggleSeekForward: onJiggleSeekForward,
             onJiggleSeekBack: onJiggleSeekBack,
+            onJiggleDrag: onJiggleDrag,
+            onJiggleDragEnd: onJiggleDragEnd,
             onJogBegin: onJogBegin,
             onScrub: onScrub,
             onScrubEnd: onScrubEnd,

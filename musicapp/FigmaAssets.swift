@@ -6,8 +6,8 @@ enum FigmaImage {
     static let cdCoverArt = "cd_cover_art"
     static let cdCaseSpine = "cd_case_spine"
     static let asterisk = "figma_asterisk"
-    static let cratesLogo = "crates_logo"
-    static let cratesClose = "crates_close"
+    static let cratesLogo = "crates_logo"   // Figma `305:2745` Press wordmark (PNG)
+    static let cratesClose = "crates_close" // Figma `305:2745` bordered X (SVG)
     static let cratesStripAsterisk = "crates_asterisk"
 
     static let vinylDiskBase = "vinyl_disk_base"
