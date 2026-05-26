@@ -293,46 +293,24 @@ struct FigmaCrateDropSheet: View {
         let vinylDragEnabled =
             vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded
 
-        let crateInteractions = vm.crateSavePhase == .expanded && !vinylDragActive
-
-        let discCenterLive = vinylCenter(
-            contentSize: CGSize(width: fullWidth, height: contentHeight),
-            vinylDiameter: vinylDiameter,
-            bottomPad: bottomPad,
-            offset: vinylDragOffset
-        )
-
-        /// True when the jewel should paint *under* the 2D rim so it reads as slipping “into” the crate.
-        let discBehindDepthRim: Bool = {
-            if vm.crateSavePhase == .settling { return true }
-            guard vinylDragEnabled else { return false }
-            return discCenterLive.y < openingGlobal.maxY + vinylDiameter * 0.42
-        }()
-
         return ZStack(alignment: .bottom) {
             VStack(spacing: 12 * s) {
                 MilkCrateSceneView(
                     controller: crateController,
-                    allowsInteraction: crateInteractions
+                    /// Never compete with the draggable vinyl sheet — crate flip gestures are unavailable here.
+                    allowsInteraction: false
                 )
                 .frame(height: crateSceneHeight(contentHeight: contentHeight, scale: s))
                 .padding(.horizontal, 6 * s)
             }
-            /// When sleeve flips are inactive, touches pass through to the jewel above the 3D area.
-            .allowsHitTesting(crateInteractions)
+            /// RealityKit/`RealityView` can sit above overlapping vinyl in hit order on some layouts; sheet body ignores crate subtree for hits.
+            .allowsHitTesting(false)
             .padding(.vertical, vm.crateSavePhase == .success ? 16 * s : 12 * s)
             .padding(.horizontal, crateHPadding)
             /// Bottom-anchored: reserve space for the resting disc under the crate opening.
             .padding(.bottom, bottomPad + vinylDiameter * 0.58 + 10 * s)
             .frame(maxWidth: .infinity)
             .zIndex(0)
-
-            if sheetDetent == .drop, vm.crateSavePhase != .success {
-                CrateDropPortalView(holeRect: openingGlobal, scale: s)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .allowsHitTesting(false)
-                    .zIndex(3)
-            }
 
             Group {
                 if vm.crateSavePhase != .success {
@@ -358,6 +336,9 @@ struct FigmaCrateDropSheet: View {
                             isHeroJewelCase: vm.crateSaveFromHero,
                             playbackAngle: vm.cdAngle
                         ))
+                        /// Generous finger target independent of procedural layers / jewel alpha.
+                        .contentShape(Circle())
+                        .frame(width: vinylDiameter + 28 * s, height: vinylDiameter + 28 * s)
                         .gesture(
                             vinylDragGesture(
                                 hitTestOpening: hitTestOpening,
@@ -367,14 +348,21 @@ struct FigmaCrateDropSheet: View {
                                 contentSize: CGSize(width: fullWidth, height: contentHeight)
                             )
                         )
+                        .simultaneousGesture(vinylTapCommitGesture(
+                            hitTestOpening: hitTestOpening,
+                            settleOpening: opening,
+                            vinylDiameter: vinylDiameter,
+                            bottomPad: bottomPad,
+                            contentSize: CGSize(width: fullWidth, height: contentHeight)
+                        ))
                         .allowsHitTesting(vinylDragEnabled && vm.crateSavePhase != .settling)
                 }
             }
-            .accessibilityLabel("Drag or flick up into crate to save")
-            .accessibilityHint("Release over the crate opening, or flick quickly upward.")
+            .accessibilityLabel("Drag, flick up, or tap disc over opening to save")
+            .accessibilityHint("Lift the disc into the crate opening until it overlaps, tap, flick up, or release.")
             .accessibilityIdentifier("crate.drop.vinyl")
             .allowsHitTesting(vm.crateSavePhase != .success)
-            .zIndex(discBehindDepthRim ? 1 : 5)
+            .zIndex(20)
 
         }
         .frame(height: contentHeight)
@@ -536,6 +524,37 @@ struct FigmaCrateDropSheet: View {
             }
     }
 
+    /// Tap-to-save when the disc is already over the forgiving hit rect (matches drag release semantics).
+    private func vinylTapCommitGesture(
+        hitTestOpening: CGRect,
+        settleOpening: CGRect,
+        vinylDiameter: CGFloat,
+        bottomPad: CGFloat,
+        contentSize: CGSize
+    ) -> some Gesture {
+        TapGesture()
+            .onEnded { _ in
+                guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else { return }
+                let center = vinylCenter(
+                    contentSize: contentSize,
+                    vinylDiameter: vinylDiameter,
+                    bottomPad: bottomPad,
+                    offset: vinylDragOffset
+                )
+                guard hitTestOpening.contains(center) else { return }
+                let layout = CrateSettleLayout(
+                    fullWidth: contentSize.width,
+                    contentHeight: contentSize.height,
+                    opening: settleOpening,
+                    bottomPad: bottomPad,
+                    vinylDiameter: vinylDiameter
+                )
+                pendingSettleLayout = layout
+                vm.impact(.light)
+                vm.commitCrateDrop(at: dropIndex)
+            }
+    }
+
     private func scrimOpacity(sheetHeight: CGFloat, screenHeight: CGFloat) -> Double {
         let p = min(1, sheetHeight / (screenHeight * 0.92))
         return 0.26 + 0.28 * p
@@ -554,68 +573,6 @@ struct FigmaCrateDropSheet: View {
             guard !Task.isCancelled, vm.crateSavePhase == .presenting else { return }
             vm.crateDropSheetDidFinishExpanding()
         }
-    }
-}
-
-// MARK: - Drop portal (2D rim + void — reads like a recessed bin over RealityKit)
-
-/// What you’re seeing in the grey “donut”: a **localized** 2D portal aligned to the same rect as hit-testing.
-/// Center is punched out so the 3D crate + the jewel (when `zIndex` puts it behind) show through the “hole.”
-/// This is not the glTF mesh — it’s UI depth-cueing so drop motion matches a single visual target.
-private struct CrateDropPortalView: View {
-    var holeRect: CGRect
-    var scale: CGFloat
-
-    private var outer: CGSize {
-        CGSize(width: max(148, holeRect.width * 1.12), height: max(128, holeRect.height * 1.1))
-    }
-
-    private var inner: CGSize {
-        CGSize(width: max(94, holeRect.width * 0.68), height: max(82, holeRect.height * 0.64))
-    }
-
-    var body: some View {
-        ZStack {
-            Ellipse()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.black.opacity(0.14),
-                            Color(white: 0.52).opacity(0.42),
-                            Color(white: 0.92).opacity(0.72)
-                        ],
-                        center: .center,
-                        startRadius: inner.width * 0.22,
-                        endRadius: max(outer.width, outer.height) * 0.46
-                    )
-                )
-                .frame(width: outer.width, height: outer.height)
-                .overlay {
-                    Ellipse()
-                        .fill(Color.white)
-                        .frame(width: inner.width, height: inner.height)
-                        .blendMode(.destinationOut)
-                }
-                .compositingGroup()
-                .shadow(color: .black.opacity(0.1), radius: 10 * scale, x: 0, y: 4 * scale)
-
-            Ellipse()
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.88),
-                            Color(white: 0.58),
-                            Color(white: 0.82)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: max(2, 2.6 * scale)
-                )
-                .frame(width: inner.width + max(5, 4 * scale), height: inner.height + max(5, 4 * scale))
-        }
-        .frame(width: outer.width, height: outer.height)
-        .position(x: holeRect.midX, y: holeRect.midY)
     }
 }
 

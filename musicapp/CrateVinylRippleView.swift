@@ -40,9 +40,9 @@ struct CrateVinylRippleView: View {
     @State private var shockwaves: [RippleShockwave] = []
 
     private let maxRipples = 4
-    /// How long tap feedback stays visible (ring + warp).
-    private let rippleDuration: TimeInterval = 0.72
-    private let rippleSpeed: CGFloat = 1100
+    /// How long tap feedback stays visible (ring + warp); slightly longer + slower front = softer read.
+    private let rippleDuration: TimeInterval = 0.82
+    private let rippleSpeed: CGFloat = 920
 
     var body: some View {
         Group {
@@ -134,7 +134,7 @@ private struct RippleVinylContent: View {
                         .float(Float(size.height)),
                         .float(Float(scrollVelocity))
                     ),
-                    maxSampleOffset: CGSize(width: 28, height: 28)
+                    maxSampleOffset: CGSize(width: 18, height: 18)
                 )
                 .layerEffect(
                     ShaderLibrary.crateMotionBlur(
@@ -164,7 +164,7 @@ private struct RippleVinylContent: View {
                 let fade = 1 - life
                 let distance = age * rippleSpeed
                 let radius = max(2, distance)
-                let ringOpacity = 0.55 * fade * fade
+                let ringOpacity = 0.3 * fade * fade * fade
 
                 // Expanding wavefront ring
                 let ring = Path(ellipseIn: CGRect(
@@ -176,12 +176,12 @@ private struct RippleVinylContent: View {
                 context.stroke(
                     ring,
                     with: .color(FigmaTheme.orangeAccent.opacity(ringOpacity)),
-                    lineWidth: 2.5
+                    lineWidth: 1.4
                 )
 
                 // Brief centre pulse on touch
-                let pulseRadius = cellSize * 0.06 * (1 + life * 2.2)
-                let pulseOpacity = 0.28 * max(0, 1 - life / 0.22)
+                let pulseRadius = cellSize * 0.055 * (1 + life * 1.6)
+                let pulseOpacity = 0.14 * max(0, 1 - life / 0.28)
                 if pulseOpacity > 0.01 {
                     let pulse = Path(ellipseIn: CGRect(
                         x: wave.origin.x - pulseRadius,

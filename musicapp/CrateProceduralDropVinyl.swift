@@ -21,6 +21,8 @@ struct CrateProceduralDropVinyl: View {
         }
         .frame(width: diameter, height: diameter)
         .clipShape(Circle())
+        /// Grooves + hub opt out of hit testing — without this the tappable region shrinks to the label disc only.
+        .contentShape(Circle())
     }
 
     private var groovesLayer: some View {

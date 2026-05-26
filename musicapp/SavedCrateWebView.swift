@@ -11,6 +11,8 @@ struct SavedCrateWebView: View {
     private static let webCanvasCoordinateSpace = "crateWeb.canvas"
     private static let webPinchMin: CGFloat = 0.45
     private static let webPinchMax: CGFloat = 3.25
+    /// Figma Dev gray for vector links (`396:3396` / `396:3513`).
+    fileprivate static let webStrandTint = Color(red: 0.89, green: 0.89, blue: 0.89)
 
     @State private var layout = SavedCrateWebLayout(
         nodes: [],
@@ -294,14 +296,21 @@ struct SavedCrateDottedBackground: View {
     }
 }
 
-// MARK: - Filled tapered vector strands (`396:3513`)
+// MARK: - Uniform-strand connectors (Figma `396:3396` stroked Bézier)
 
 struct SavedCrateWebVectorConnectors: View {
     let nodes: [SavedCrateWebNode]
     let edges: [SavedCrateWebEdge]
     let canvasSize: CGSize
 
-    private let strandFill = Color(red: 0.78, green: 0.78, blue: 0.78)
+    /// Round caps/joins preserve constant perpendicular thickness along the spline as endpoints move (“morphing” vector strand).
+    private var strandStroke: StrokeStyle {
+        StrokeStyle(
+            lineWidth: SavedCrateWebGraph.uniformWebStrandLineWidth,
+            lineCap: .round,
+            lineJoin: .round
+        )
+    }
 
     var body: some View {
         Canvas { context, _ in
@@ -310,13 +319,12 @@ struct SavedCrateWebVectorConnectors: View {
                 guard let a = nodeMap[edge.a], let b = nodeMap[edge.b] else { continue }
                 let start = SavedCrateWebGraph.edgePoint(on: a.center, toward: b.center, radius: a.radius)
                 let end = SavedCrateWebGraph.edgePoint(on: b.center, toward: a.center, radius: b.radius)
-                let path = SavedCrateWebConnectorPath.taperedStrand(
-                    from: start,
-                    to: end,
-                    startRadius: a.radius,
-                    endRadius: b.radius
+                let spine = SavedCrateWebConnectorPath.uniformStrandSpine(from: start, to: end)
+                context.stroke(
+                    spine,
+                    with: .color(SavedCrateWebView.webStrandTint),
+                    style: strandStroke
                 )
-                context.fill(path, with: .color(strandFill))
             }
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
