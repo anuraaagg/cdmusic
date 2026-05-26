@@ -87,21 +87,21 @@ struct SavedCrateShareHubSheet: View {
                         title: "Instagram Story · 9∶16",
                         accessibilityId: "savedCrate.share.story"
                     ) {
-                        UIActivitySharePresenter.present(activityItems: [active.instagramStory])
+                        SocialDirectShare.share(image: active.instagramStory, target: .instagramStory)
                     }
 
                     shareChromeButton(
                         title: "Instagram · square feed",
                         accessibilityId: "savedCrate.share.feed"
                     ) {
-                        UIActivitySharePresenter.present(activityItems: [active.instagramFeed])
+                        SocialDirectShare.share(image: active.instagramFeed, target: .instagramFeed)
                     }
 
                     shareChromeButton(
                         title: "X · portrait (3∶4)",
                         accessibilityId: "savedCrate.share.x"
                     ) {
-                        UIActivitySharePresenter.present(activityItems: [active.socialPortrait])
+                        SocialDirectShare.share(image: active.socialPortrait, target: .socialPortraitAndX)
                     }
 
                     if let mp4 = active.mp4URL {
