@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Saved crate hybrid tab (`401:3699` / `401:3779`)
 
-/// Braun-style WEB | CRATES key — orange seated cap on black well + cream flat half.
+/// WEB | CRATES — single canvas tone (`SavedCrateCanvasChrome.fieldFill`); orange cap only — no black well / white halos.
 struct SavedCrateHybridTabSwitch: View {
     @Binding var mode: SavedCrateViewMode
     var scale: CGFloat = 1
@@ -12,7 +12,9 @@ struct SavedCrateHybridTabSwitch: View {
 
     var body: some View {
         let s = scale
-        let halfW = 74.167 * s
+        let dividerW = max(1, s)
+        let trackW = Self.nativeWidth * s
+        let halfW = (trackW - dividerW) / 2
         let h = Self.nativeHeight * s
 
         HStack(spacing: 0) {
@@ -21,12 +23,21 @@ struct SavedCrateHybridTabSwitch: View {
             }
             .accessibilityIdentifier("savedCrate.mode.web")
 
+            Rectangle()
+                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.12))
+                .frame(width: dividerW, height: h * 0.62)
+
             tabHalf(title: "CRATES", isActive: mode == .crate, width: halfW, height: h, scale: s) {
                 mode = .crate
             }
             .accessibilityIdentifier("savedCrate.mode.crate")
         }
-        .frame(width: Self.nativeWidth * s, height: h)
+        .frame(width: trackW, height: h)
+        .clipShape(RoundedRectangle(cornerRadius: 0.833 * s))
+        .overlay {
+            RoundedRectangle(cornerRadius: 0.833 * s)
+                .stroke(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.1), lineWidth: 0.5 * s)
+        }
         .accessibilityIdentifier("savedCrate.modePicker")
     }
 
@@ -40,8 +51,7 @@ struct SavedCrateHybridTabSwitch: View {
     ) -> some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: 0.833 * s)
-                    .fill(isActive ? Color.black : Color(red: 0.88, green: 0.86, blue: 0.85))
+                SavedCrateCanvasChrome.fieldFill
 
                 if isActive {
                     RoundedRectangle(cornerRadius: 8.333 * s)
@@ -49,21 +59,19 @@ struct SavedCrateHybridTabSwitch: View {
                         .frame(width: 70.833 * s, height: 35.417 * s)
                         .overlay {
                             RoundedRectangle(cornerRadius: 8.333 * s)
-                                .stroke(Color.white.opacity(0.85), lineWidth: 1.25 * s)
+                                .stroke(Color(red: 0.06, green: 0.06, blue: 0.055).opacity(0.28), lineWidth: 1 * s)
                         }
-                        .shadow(color: .black.opacity(0.48), radius: 6.667 * s, x: 6.667 * s, y: 6.667 * s)
+                        .shadow(color: .black.opacity(0.14), radius: 3 * s, x: 0, y: 1.5 * s)
                         .offset(y: 0.5 * s)
                 }
 
                 Text(title)
                     .font(FigmaFont.mono(15 * s))
-                    .foregroundStyle(isActive ? .white : Color(red: 0.19, green: 0.19, blue: 0.19))
-            }
-            .overlay {
-                if !isActive {
-                    RoundedRectangle(cornerRadius: 0.833 * s)
-                        .stroke(Color.white.opacity(0.35), lineWidth: 0.5 * s)
-                }
+                    .foregroundStyle(
+                        isActive
+                            ? .white
+                            : Color(red: 0.19, green: 0.19, blue: 0.19).opacity(0.72)
+                    )
             }
             .frame(width: width, height: height)
             .contentShape(Rectangle())
@@ -78,5 +86,5 @@ struct SavedCrateHybridTabSwitch: View {
         SavedCrateHybridTabSwitch(mode: .constant(.crate))
     }
     .padding()
-    .background(Color.white)
+    .background(SavedCrateCanvasChrome.fieldFill)
 }

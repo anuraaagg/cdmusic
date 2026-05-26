@@ -40,9 +40,10 @@ struct CrateVinylRippleView: View {
     @State private var shockwaves: [RippleShockwave] = []
 
     private let maxRipples = 4
-    /// How long tap feedback stays visible (ring + warp); slightly longer + slower front = softer read.
-    private let rippleDuration: TimeInterval = 0.82
-    private let rippleSpeed: CGFloat = 920
+    /// Slow radial expansion + long ease-out keeps tap feedback soft, not punchy.
+    private let rippleDuration: TimeInterval = 1.45
+    /// Must stay in rough sync with Metal `kSpeed`.
+    private let rippleSpeed: CGFloat = 440
 
     var body: some View {
         Group {
@@ -134,7 +135,7 @@ private struct RippleVinylContent: View {
                         .float(Float(size.height)),
                         .float(Float(scrollVelocity))
                     ),
-                    maxSampleOffset: CGSize(width: 18, height: 18)
+                    maxSampleOffset: CGSize(width: 12, height: 12)
                 )
                 .layerEffect(
                     ShaderLibrary.crateMotionBlur(
@@ -164,9 +165,10 @@ private struct RippleVinylContent: View {
                 let fade = 1 - life
                 let distance = age * rippleSpeed
                 let radius = max(2, distance)
-                let ringOpacity = 0.3 * fade * fade * fade
+                /// Ease-out opacity so peak is mellow, tail is long (matches slow swell).
+                let ringOpacity = 0.17 * fade * fade * fade * fade
 
-                // Expanding wavefront ring
+                // Soft expanding halo ring (minimal contrast).
                 let ring = Path(ellipseIn: CGRect(
                     x: wave.origin.x - radius,
                     y: wave.origin.y - radius,
@@ -176,12 +178,12 @@ private struct RippleVinylContent: View {
                 context.stroke(
                     ring,
                     with: .color(FigmaTheme.orangeAccent.opacity(ringOpacity)),
-                    lineWidth: 1.4
+                    lineWidth: 1.05
                 )
 
-                // Brief centre pulse on touch
-                let pulseRadius = cellSize * 0.055 * (1 + life * 1.6)
-                let pulseOpacity = 0.14 * max(0, 1 - life / 0.28)
+                /// Tiny center blush — fades before the swell dominates.
+                let pulseRadius = cellSize * 0.048 * (1 + life * 0.9)
+                let pulseOpacity = 0.07 * max(0, 1 - life / 0.4)
                 if pulseOpacity > 0.01 {
                     let pulse = Path(ellipseIn: CGRect(
                         x: wave.origin.x - pulseRadius,

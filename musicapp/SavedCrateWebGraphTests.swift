@@ -82,6 +82,46 @@ enum SavedCrateWebGraphTests {
             failures.append("canvas width too small")
         }
 
+        /// Unrelated metadata → no `buildEdges` pairs, but `build` adds proximity links so nothing floats alone.
+        let lone1 = SavedMoment(
+            trackPersistentID: 200,
+            title: "L1",
+            artist: "ZEBRA ONLY",
+            genre: "QQ",
+            skin: .normal,
+            accentHex: nil,
+            artwork: nil
+        )
+        let lone2 = SavedMoment(
+            trackPersistentID: 201,
+            title: "L2",
+            artist: "YAK ONLY",
+            genre: "RR",
+            skin: .normal,
+            accentHex: nil,
+            artwork: nil
+        )
+        let lone3 = SavedMoment(
+            trackPersistentID: 202,
+            title: "L3",
+            artist: "XRAY ONLY",
+            genre: "SS",
+            skin: .normal,
+            accentHex: nil,
+            artwork: nil
+        )
+        if !SavedCrateWebGraph.buildEdges(from: [lone1, lone2, lone3]).isEmpty {
+            failures.append("expected zero metadata edges for three unrelated moments")
+        }
+        let loneLayout = SavedCrateWebGraph.build(
+            moments: [lone1, lone2, lone3],
+            viewport: CGSize(width: 390, height: 520)
+        )
+        let loneDeg = SavedCrateWebGraphTests.degreeCount(edges: loneLayout.edges)
+        for n in loneLayout.nodes where loneDeg[n.id, default: 0] < 1 {
+            failures.append("proximity bridge: node \(n.id) has no strand")
+        }
+
         #if DEBUG
         let demoEdges = SavedCrateWebGraph.buildEdges(from: SavedCrateDemoData.moments)
         /// With one connection per CD, at most floor(n/2) edges.

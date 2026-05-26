@@ -5,7 +5,7 @@
 
 ## 1. Concept
 
-A **3-page first-launch onboarding** that introduces the flip-phone music player. Ported from `Onboarding2022View` interaction mechanics, restyled with `FigmaTheme` tokens and `FigmaButtonHalf` CTAs.
+A **3-page first-launch onboarding** that introduces the flip-phone music player. Ported from `Onboarding2022View` interaction mechanics; UI uses **system colors** (`.primary`, `.secondary`, `Color.accentColor`, `Color(.systemBackground)`) and **standard SwiftUI buttons** (`.borderedProminent`, plain Skip).
 
 Shows **once per user** by default. Can be **disabled entirely from code** via `OnboardingConfig.isEnabled`.
 
@@ -69,7 +69,7 @@ if showOnboarding {
 │  │ S1 │ │ S2 │ │ S3 │  ← carousel   │
 │  └────┘ └────┘ └────┘               │
 │                                      │
-│  [ GET STARTED ]  (FigmaButtonHalf)  │
+│  [ GET STARTED ]  (.borderedProminent) │
 │  Footer note (14pt, 70%)             │
 └──────────────────────────────────────┘
      ↑ animated gradient blobs + noise
@@ -162,5 +162,5 @@ No `pbxproj` edits needed — project uses synchronized `musicapp/` folder.
 
 - No Sign In / account flow
 - No storyboard dependency
-- No looping video in v1 (static card previews using existing Figma assets)
+- No bundled MP4 in v1 — carousel uses SwiftUI looping previews (`OnboardingCardPreviews`)
 - No noise texture in v1 (optional add later)

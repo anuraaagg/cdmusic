@@ -35,6 +35,10 @@ enum SavedCrateWebGraph {
     static let webCanvasNodeDiameterScale: CGFloat = 0.48
     /// Extra canvas margin beyond viewport — supports panning in all directions.
     static let canvasMargin: CGFloat = 520
+    /// Extra scrollable slack below laid-out discs so idle grey stays visible above the floating share bar (`396:3505`).
+    static let webCanvasExtraBottomSlack: CGFloat = 168
+    /// Initial graph centroid nudged up in canvas coords — reserves “empty” field below until the user pans/drags.
+    static let webCanvasInitialVerticalBias: CGFloat = 72
 
     /// Nominal tier → rendered diameter (floored so tap targets remain usable).
     static func scaledLayoutDiameter(_ nominal: CGFloat) -> CGFloat {
@@ -71,8 +75,8 @@ enum SavedCrateWebGraph {
             )
         }
 
-        let edges = buildEdges(from: moments)
-        let degreeByNodeId = degreeMap(for: moments, edges: edges)
+        let baseEdges = buildEdges(from: moments)
+        let degreeByNodeId = degreeMap(for: moments, edges: baseEdges)
         let ranked = moments.sorted { lhs, rhs in
             let dl = degreeByNodeId[lhs.id, default: 0]
             let dr = degreeByNodeId[rhs.id, default: 0]
@@ -107,7 +111,7 @@ enum SavedCrateWebGraph {
         } else {
             nodes = discSpreadLayout(
                 ranked: ranked,
-                edges: edges,
+                edges: baseEdges,
                 viewport: layoutVp
             )
         }
@@ -123,6 +127,7 @@ enum SavedCrateWebGraph {
             )
         }
         let center = graphCentroid(of: shifted)
+        let edges = proximityBridgeEdges(nodes: shifted, baseEdges: baseEdges)
 
         return SavedCrateWebLayout(
             nodes: shifted,
@@ -162,13 +167,19 @@ enum SavedCrateWebGraph {
 
     private static func infiniteCanvasSize(viewport: CGSize, graphBounds: CGRect) -> CGSize {
         let minW = max(viewport.width * 2.4, graphBounds.width + canvasMargin * 2)
-        let minH = max(viewport.height * 2.4, graphBounds.height + canvasMargin * 2)
+        let minH = max(
+            viewport.height * 2.4,
+            graphBounds.height + canvasMargin * 2 + webCanvasExtraBottomSlack
+        )
         return CGSize(width: minW, height: minH)
     }
 
     /// Place graph in the middle of the infinite canvas.
     private static func canvasShift(canvasSize: CGSize, graphBounds: CGRect) -> CGPoint {
-        let targetCenter = CGPoint(x: canvasSize.width * 0.5, y: canvasSize.height * 0.5)
+        let targetCenter = CGPoint(
+            x: canvasSize.width * 0.5,
+            y: canvasSize.height * 0.5 - webCanvasInitialVerticalBias
+        )
         let graphCenter = CGPoint(x: graphBounds.midX, y: graphBounds.midY)
         return CGPoint(x: targetCenter.x - graphCenter.x, y: targetCenter.y - graphCenter.y)
     }
@@ -181,7 +192,53 @@ enum SavedCrateWebGraph {
         return CGPoint(x: center.x + dx / dist * radius, y: center.y + dy / dist * radius)
     }
 
-    // MARK: - Edges (at most one strand per CD)
+    // MARK: - Edges (metadata: at most one strand per CD) + proximity bridges
+
+    /// Ensures every disc has at least one connector: isolates (after `buildEdges`) link to the geometrically nearest peer.
+    /// The neighbor may gain a second strand; metadata-greedy pairing still caps artist/genre edges at one per disc.
+    private static func proximityBridgeEdges(nodes: [SavedCrateWebNode], baseEdges: [SavedCrateWebEdge]) -> [SavedCrateWebEdge] {
+        guard nodes.count > 1 else { return baseEdges }
+
+        var edges = baseEdges
+        var pairedKeys = Set(edges.map { pairKey($0.a, $0.b) })
+        let ids = nodes.map(\.id)
+        var degrees = degreeMap(forNodeIds: ids, edges: edges)
+
+        let isolates = nodes
+            .filter { degrees[$0.id, default: 0] == 0 }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+
+        for o in isolates {
+            var best: SavedCrateWebNode?
+            var bestDist = CGFloat.infinity
+            for n in nodes where n.id != o.id {
+                let dx = n.center.x - o.center.x
+                let dy = n.center.y - o.center.y
+                let d = hypot(dx, dy)
+                if d < bestDist - 1e-4 {
+                    bestDist = d
+                    best = n
+                } else if abs(d - bestDist) <= 1e-4 {
+                    guard let previous = best else {
+                        best = n
+                        continue
+                    }
+                    if n.id.uuidString < previous.id.uuidString {
+                        best = n
+                    }
+                }
+            }
+            guard let nearest = best else { continue }
+            let key = pairKey(o.id, nearest.id)
+            guard !pairedKeys.contains(key) else { continue }
+            edges.append(SavedCrateWebEdge(id: key, a: o.id, b: nearest.id))
+            pairedKeys.insert(key)
+            degrees[o.id, default: 0] += 1
+            degrees[nearest.id, default: 0] += 1
+        }
+
+        return edges
+    }
 
     static func buildEdges(from moments: [SavedMoment]) -> [SavedCrateWebEdge] {
         let count = moments.count
@@ -288,7 +345,11 @@ enum SavedCrateWebGraph {
     }
 
     private static func degreeMap(for moments: [SavedMoment], edges: [SavedCrateWebEdge]) -> [UUID: Int] {
-        var map = Dictionary(uniqueKeysWithValues: moments.map { ($0.id, 0) })
+        degreeMap(forNodeIds: moments.map(\.id), edges: edges)
+    }
+
+    private static func degreeMap(forNodeIds ids: [UUID], edges: [SavedCrateWebEdge]) -> [UUID: Int] {
+        var map = Dictionary(uniqueKeysWithValues: ids.map { ($0, 0) })
         for edge in edges {
             map[edge.a, default: 0] += 1
             map[edge.b, default: 0] += 1

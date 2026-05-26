@@ -2,6 +2,11 @@ import SwiftUI
 
 // MARK: - Saved crate CD web (`396:3505` / vector `396:3513`)
 
+/// Full-bleed surface behind dotted WEB field — avoids stacking white discs/strands/glass strands on `#fff`.
+enum SavedCrateCanvasChrome {
+    static let fieldFill = Color(red: 0.93, green: 0.935, blue: 0.94)
+}
+
 struct SavedCrateWebView: View {
     let moments: [SavedMoment]
     var selectedID: UUID?
@@ -109,7 +114,7 @@ struct SavedCrateWebView: View {
                     )
                 }
                 .scrollIndicators(.hidden)
-                .background(Color.white)
+                .background(SavedCrateCanvasChrome.fieldFill)
                 .overlay {
                     if composedMoments().isEmpty {
                         emptyState
@@ -145,7 +150,7 @@ struct SavedCrateWebView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(SavedCrateCanvasChrome.fieldFill)
         .accessibilityIdentifier("savedCrate.web")
     }
 
@@ -201,8 +206,9 @@ struct SavedCrateWebView: View {
                 .foregroundStyle(Color(white: 0.35))
             Text(
                 """
-                Long-press a CD in the crate to save a moment — at most \
-                one connection per disc (matching artist/genre strands).
+                Long-press a CD in the crate to save a moment — strands tie matching \
+                artist/genre together, and lone discs quietly link to the nearest neighbor \
+                so the web stays one piece.
                 """
             )
                 .font(FigmaFont.mono(12))
@@ -268,7 +274,7 @@ struct SavedCrateDottedBackground: View {
 
     var body: some View {
         Canvas { context, canvasSize in
-            context.fill(Path(CGRect(origin: .zero, size: canvasSize)), with: .color(.white))
+            context.fill(Path(CGRect(origin: .zero, size: canvasSize)), with: .color(SavedCrateCanvasChrome.fieldFill))
 
             var x = dotStep * 0.5
             while x < canvasSize.width {
@@ -343,38 +349,39 @@ private struct SavedCrateWebGlassStrand: View {
     let shape: Path
 
     var body: some View {
-        ZStack {
+        let frostingVeil = LinearGradient(
+            stops: [
+                Gradient.Stop(color: SavedCrateWebGlassStrandStyle.shimmerTop, location: 0),
+                Gradient.Stop(color: SavedCrateWebGlassStrandStyle.coolTint.opacity(0.44), location: 0.5),
+                Gradient.Stop(color: SavedCrateWebGlassStrandStyle.shimmerFoot, location: 1),
+            ],
+            startPoint: UnitPoint(x: 0.12, y: 0),
+            endPoint: UnitPoint(x: 0.88, y: 1)
+        )
+
+        let ridgeGlow = LinearGradient(
+            stops: [
+                Gradient.Stop(color: Color.white.opacity(0.78), location: 0),
+                Gradient.Stop(color: Color.white.opacity(0.06), location: 0.5),
+                Gradient.Stop(color: Color.white.opacity(0.72), location: 1),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+
+        let ridgeStroke = StrokeStyle(lineWidth: SavedCrateWebGlassStrandStyle.ridgeStrokeWidth, lineJoin: .round)
+
+        return ZStack {
             shape
                 .fill(.thinMaterial)
 
             shape
-                .fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: SavedCrateWebGlassStrandStyle.shimmerTop, location: 0),
-                            .init(color: SavedCrateWebGlassStrandStyle.coolTint.opacity(0.44), location: 0.5),
-                            .init(color: SavedCrateWebGlassStrandStyle.shimmerFoot, location: 1),
-                        ],
-                        startPoint: UnitPoint(x: 0.12, y: 0),
-                        endPoint: UnitPoint(x: 0.88, y: 1),
-                    ),
-                )
+                .fill(frostingVeil)
                 .blendMode(.plusLighter)
                 .opacity(SavedCrateWebGlassStrandStyle.frostingBlendOpacity)
 
             shape
-                .stroke(
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color.white.opacity(0.78), location: 0),
-                            .init(color: Color.white.opacity(0.06), location: 0.5),
-                            .init(color: Color.white.opacity(0.72), location: 1),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing,
-                    ),
-                    style: StrokeStyle(lineWidth: SavedCrateWebGlassStrandStyle.ridgeStrokeWidth, lineJoin: .round),
-                )
+                .stroke(ridgeGlow, style: ridgeStroke)
         }
         .allowsHitTesting(false)
     }

@@ -36,6 +36,17 @@ struct T3SettingsSheet: View {
                     Spacer()
                 }
 
+                #if DEBUG
+                HStack {
+                    Spacer()
+                    T3Button(label: "RESET ONBOARDING", style: .blackNum) {
+                        OnboardingConfig.resetCompletion()
+                        dismiss()
+                    }
+                    Spacer()
+                }
+                #endif
+
                 Text("MusicPlayer 1.0 · Terms · Privacy")
                     .font(T3Font.labelDetail())
                     .foregroundColor(T3Color.bgDarkGrey.opacity(0.6))

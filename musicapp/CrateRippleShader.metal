@@ -2,11 +2,11 @@
 #include <SwiftUI/SwiftUI_Metal.h>
 using namespace metal;
 
-/// Crate vinyl tap — softer amplitude / wider envelope than Telegram reference so warp reads gentle.
-constant float kAmplitude = 4.2;
-constant float kFrequency = 10.5;
-constant float kDecay = 3.35;
-constant float kSpeed = 920.0;
+/// Crate vinyl tap — slow, diffuse bulge (low speed / low frequency) reads as soft water, not shock.
+constant float kAmplitude = 2.1;
+constant float kFrequency = 6.2;
+constant float kDecay = 2.05;
+constant float kSpeed = 440.0;
 
 static float2 rippleOffset(float2 position, float2 origin, float time) {
     float2 delta = position - origin;
@@ -18,12 +18,12 @@ static float2 rippleOffset(float2 position, float2 origin, float time) {
 
     float wavefront = time * kSpeed;
     float phase = dist - wavefront;
-    /// Wider falloff (0.005 vs 0.008) = less “shock ring,” more diffuse ripple.
-    float envelope = exp(-abs(phase) * 0.005) * exp(-time * kDecay);
-    float wave = sin(phase * kFrequency * 0.0085) * envelope;
+    /// Very wide band so one slow swell dominates instead of crisp rings.
+    float envelope = exp(-abs(phase) * 0.0032) * exp(-time * kDecay);
+    float wave = sin(phase * kFrequency * 0.0068) * envelope;
 
     float2 dir = delta / dist;
-    return dir * wave * kAmplitude * 0.36;
+    return dir * wave * kAmplitude * 0.28;
 }
 
 static float2 barrelOffset(float2 position, float width, float height, float velocity) {

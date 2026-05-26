@@ -1,11 +1,12 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Saved crate full screen (`396:3505` web · `401:3707` crates)
 
 struct FigmaSavedCrateScreen: View {
     @ObservedObject var vm: MusicPlayerViewModel
     @StateObject private var crateController = MilkCrateSceneController()
-    @State private var sharePayload: SharePayload?
+    @State private var shareHubPayload: SavedCrateShareHubPayload?
     @State private var isSharing = false
     @State private var shareProgress: Float = 0
     @State private var selectedMomentID: UUID?
@@ -16,13 +17,22 @@ struct FigmaSavedCrateScreen: View {
 
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            SavedCrateCanvasChrome.fieldFill
+                .ignoresSafeArea()
+
+            /// Full-screen graph / crates; scrolls underneath floating chrome (`396:3505`).
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                creamHeader
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                shareFooter
+                floatingCrateHeaderChrome
+                Spacer(minLength: 0)
+            }
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                floatingShareButton
             }
 
             if isSharing {
@@ -47,14 +57,14 @@ struct FigmaSavedCrateScreen: View {
             }
             crateController.updateSleeves(moments: moments)
         }
-        .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: shareItems(from: payload.images))
+        .sheet(item: $shareHubPayload) { payload in
+            SavedCrateShareHubSheet(payload: payload)
         }
     }
 
-    // MARK: - Header (`399:3667`)
+    // MARK: - Header (`399:3667`) — floated above infinite canvas (`396:3505`)
 
-    private var creamHeader: some View {
+    private var floatingCrateHeaderChrome: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center) {
                 pressLogo
@@ -76,11 +86,20 @@ struct FigmaSavedCrateScreen: View {
             }
 
             Rectangle()
-                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.75))
+                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.32))
                 .frame(height: 2)
         }
-        .padding(16)
+        .padding(.horizontal, 16)
         .padding(.top, 16)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        /// Same matte as WEB dotted canvas (`SavedCrateCanvasChrome.fieldFill`) — no frosted white strip.
+        .background {
+            SavedCrateCanvasChrome.fieldFill
+                .ignoresSafeArea(edges: .top)
+        }
+        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
+        .allowsHitTesting(true)
     }
 
     private var pressLogo: some View {
@@ -133,9 +152,9 @@ struct FigmaSavedCrateScreen: View {
         }
     }
 
-    // MARK: - Share footer (`401:3679`)
+    // MARK: - Share (`401:3679`) — floated bottom; WEB canvas remains full-bleed beneath.
 
-    private var shareFooter: some View {
+    private var floatingShareButton: some View {
         FigmaButtonHalf.midGrey(label: "SHARE", flex: false, scale: 117.333 / 176) {
             beginShare()
         }
@@ -143,6 +162,7 @@ struct FigmaSavedCrateScreen: View {
         .disabled(moments.isEmpty)
         .opacity(moments.isEmpty ? 0.4 : 1)
         .padding(.bottom, 28)
+        .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 10)
         .accessibilityIdentifier("savedCrate.share")
     }
 
@@ -171,27 +191,61 @@ struct FigmaSavedCrateScreen: View {
         isSharing = true
         shareProgress = 0
 
-        if viewMode == .crate {
-            crateController.setPopOut(1)
-        }
+        crateController.setPopOut(1)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            let crateSnap = renderCrateSceneSnapshot()
+            crateController.setPopOut(0)
+            let webSnap = renderWebSnapshot()
+            let shareMoments = moments
+            let shareAngle = vm.cdAngle
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            let snapshot = viewMode == .web ? renderWebSnapshot() : nil
-            let style: CrateShareImageGenerator.CrateShareStyle = viewMode == .web ? .floatingStack : .cratePopOut
-
-            CrateShareImageGenerator.generate(
-                moment: moment,
-                allMoments: moments,
-                style: style,
-                cdAngle: vm.cdAngle,
-                crateSnapshot: snapshot,
-                progress: { shareProgress = $0 }
-            ) { images in
-                isSharing = false
-                crateController.setPopOut(0)
-                sharePayload = SharePayload(images: images)
+            DispatchQueue.global(qos: .userInitiated).async {
+                CrateShareImageGenerator.generate(
+                    moment: moment,
+                    allMoments: shareMoments,
+                    style: .floatingStack,
+                    cdAngle: shareAngle,
+                    crateSnapshot: webSnap,
+                    progress: { p in
+                        DispatchQueue.main.async { shareProgress = Float(p * 0.52) }
+                    }
+                ) { webPack in
+                    CrateShareImageGenerator.generate(
+                        moment: moment,
+                        allMoments: shareMoments,
+                        style: .cratePopOut,
+                        cdAngle: shareAngle,
+                        crateSnapshot: crateSnap,
+                        progress: { p in
+                            DispatchQueue.main.async { shareProgress = Float(0.52 + p * 0.48) }
+                        }
+                    ) { cratePack in
+                        DispatchQueue.main.async {
+                            isSharing = false
+                            shareHubPayload = SavedCrateShareHubPayload(
+                                webImages: webPack,
+                                crateImages: cratePack
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+
+    @MainActor
+    private func renderCrateSceneSnapshot() -> UIImage? {
+        let view = ZStack {
+            SavedCrateCanvasChrome.fieldFill
+            MilkCrateSceneView(controller: crateController, allowsInteraction: false)
+                .frame(width: 300, height: 320)
+        }
+        .frame(width: 340, height: 380)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = UIScreen.main.scale
+        return renderer.uiImage
     }
 
     @MainActor
@@ -221,12 +275,6 @@ struct FigmaSavedCrateScreen: View {
         let renderer = ImageRenderer(content: view)
         renderer.scale = UIScreen.main.scale
         return renderer.uiImage
-    }
-
-    private func shareItems(from images: ShareImages) -> [Any] {
-        var items: [Any] = [images.instagramStory, images.instagramFeed, images.socialPortrait]
-        if let mp4 = images.mp4URL { items.append(mp4) }
-        return items
     }
 }
 
@@ -280,23 +328,4 @@ private struct SavedCrateTabView: View {
         }
         return moments[controller.frontIndex]
     }
-}
-
-extension ShareImages: Identifiable {
-    var id: String { UUID().uuidString }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
-struct SharePayload: Identifiable {
-    let id = UUID()
-    let images: ShareImages
 }

@@ -29,4 +29,8 @@ enum FigmaImage {
     static let knobTactile = "knob_tactile"
     static let volChevron = "vol_chevron"
     static let volSliderTrack = "vol_slider_track"
+
+    static func onboardingScreen(_ index: Int) -> String {
+        "onboarding_s\(max(1, min(6, index)))"
+    }
 }
