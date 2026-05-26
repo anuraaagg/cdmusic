@@ -11,8 +11,6 @@ struct SavedCrateWebView: View {
     private static let webCanvasCoordinateSpace = "crateWeb.canvas"
     private static let webPinchMin: CGFloat = 0.45
     private static let webPinchMax: CGFloat = 3.25
-    /// Figma Dev gray for vector links (`396:3396` / `396:3513`).
-    fileprivate static let webStrandTint = Color(red: 0.89, green: 0.89, blue: 0.89)
 
     @State private var layout = SavedCrateWebLayout(
         nodes: [],
@@ -296,30 +294,88 @@ struct SavedCrateDottedBackground: View {
     }
 }
 
-// MARK: - Straight tapered strand connectors
+/// Palette + knobs for translucent web strands (“liquid glass” over the dotted field).
+private enum SavedCrateWebGlassStrandStyle {
+    /// Cool veil mixed into the frosting layer.
+    static let coolTint = Color(red: 0.70, green: 0.81, blue: 0.96)
+    static let shimmerTop = Color.white.opacity(0.58)
+    static let shimmerFoot = Color.white.opacity(0.36)
+    static let frostingBlendOpacity: CGFloat = 0.4
+    static let ridgeStrokeWidth: CGFloat = 0.72
+}
+
+// MARK: - Glass-style strand connectors
 
 struct SavedCrateWebVectorConnectors: View {
     let nodes: [SavedCrateWebNode]
     let edges: [SavedCrateWebEdge]
     let canvasSize: CGSize
 
+    private var nodeMap: [UUID: SavedCrateWebNode] {
+        Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+    }
+
     var body: some View {
-        Canvas { context, _ in
-            let nodeMap = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-            for edge in edges {
-                guard let a = nodeMap[edge.a], let b = nodeMap[edge.b] else { continue }
-                let start = SavedCrateWebGraph.edgePoint(on: a.center, toward: b.center, radius: a.radius)
-                let end = SavedCrateWebGraph.edgePoint(on: b.center, toward: a.center, radius: b.radius)
-                let path = SavedCrateWebConnectorPath.straightTaperedStrand(
-                    from: start,
-                    to: end,
-                    startRadius: a.radius,
-                    endRadius: b.radius
-                )
-                context.fill(path, with: .color(SavedCrateWebView.webStrandTint))
+        ZStack(alignment: .topLeading) {
+            ForEach(edges) { edge in
+                Group {
+                    if let a = nodeMap[edge.a], let b = nodeMap[edge.b] {
+                        let start = SavedCrateWebGraph.edgePoint(on: a.center, toward: b.center, radius: a.radius)
+                        let end = SavedCrateWebGraph.edgePoint(on: b.center, toward: a.center, radius: b.radius)
+                        let strandPath = SavedCrateWebConnectorPath.straightTaperedStrand(
+                            from: start,
+                            to: end,
+                            startRadius: a.radius,
+                            endRadius: b.radius
+                        )
+                        SavedCrateWebGlassStrand(shape: strandPath)
+                    }
+                }
             }
         }
-        .frame(width: canvasSize.width, height: canvasSize.height)
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Frosted strands: `Material` samples the dotted field behind them; gradient + faint ridge read like Apple-ish glass ribbons.
+private struct SavedCrateWebGlassStrand: View {
+    let shape: Path
+
+    var body: some View {
+        ZStack {
+            shape
+                .fill(.thinMaterial)
+
+            shape
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: SavedCrateWebGlassStrandStyle.shimmerTop, location: 0),
+                            .init(color: SavedCrateWebGlassStrandStyle.coolTint.opacity(0.44), location: 0.5),
+                            .init(color: SavedCrateWebGlassStrandStyle.shimmerFoot, location: 1),
+                        ],
+                        startPoint: UnitPoint(x: 0.12, y: 0),
+                        endPoint: UnitPoint(x: 0.88, y: 1),
+                    ),
+                )
+                .blendMode(.plusLighter)
+                .opacity(SavedCrateWebGlassStrandStyle.frostingBlendOpacity)
+
+            shape
+                .stroke(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(0.78), location: 0),
+                            .init(color: Color.white.opacity(0.06), location: 0.5),
+                            .init(color: Color.white.opacity(0.72), location: 1),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing,
+                    ),
+                    style: StrokeStyle(lineWidth: SavedCrateWebGlassStrandStyle.ridgeStrokeWidth, lineJoin: .round),
+                )
+        }
         .allowsHitTesting(false)
     }
 }
