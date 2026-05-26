@@ -41,8 +41,6 @@ enum SavedCrateWebGraph {
         max(54, nominal * webCanvasNodeDiameterScale)
     }
 
-    /// Stroked strand thickness ( pts in canvas space; scales with pinch). Aligned with Figma light-gray link (`396:3396` / `396:3513`).
-    static let uniformWebStrandLineWidth: CGFloat = 11
     /// geometryReader can report CGSize.zero briefly; inverted clamp bounds collapsed every disc to one point.
     private static func layoutViewport(_ viewport: CGSize) -> CGSize {
         CGSize(width: max(viewport.width, 320), height: max(viewport.height, 480))

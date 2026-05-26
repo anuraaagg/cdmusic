@@ -296,21 +296,12 @@ struct SavedCrateDottedBackground: View {
     }
 }
 
-// MARK: - Uniform-strand connectors (Figma `396:3396` stroked Bézier)
+// MARK: - Straight tapered strand connectors
 
 struct SavedCrateWebVectorConnectors: View {
     let nodes: [SavedCrateWebNode]
     let edges: [SavedCrateWebEdge]
     let canvasSize: CGSize
-
-    /// Round caps/joins preserve constant perpendicular thickness along the spline as endpoints move (“morphing” vector strand).
-    private var strandStroke: StrokeStyle {
-        StrokeStyle(
-            lineWidth: SavedCrateWebGraph.uniformWebStrandLineWidth,
-            lineCap: .round,
-            lineJoin: .round
-        )
-    }
 
     var body: some View {
         Canvas { context, _ in
@@ -319,12 +310,13 @@ struct SavedCrateWebVectorConnectors: View {
                 guard let a = nodeMap[edge.a], let b = nodeMap[edge.b] else { continue }
                 let start = SavedCrateWebGraph.edgePoint(on: a.center, toward: b.center, radius: a.radius)
                 let end = SavedCrateWebGraph.edgePoint(on: b.center, toward: a.center, radius: b.radius)
-                let spine = SavedCrateWebConnectorPath.uniformStrandSpine(from: start, to: end)
-                context.stroke(
-                    spine,
-                    with: .color(SavedCrateWebView.webStrandTint),
-                    style: strandStroke
+                let path = SavedCrateWebConnectorPath.straightTaperedStrand(
+                    from: start,
+                    to: end,
+                    startRadius: a.radius,
+                    endRadius: b.radius
                 )
+                context.fill(path, with: .color(SavedCrateWebView.webStrandTint))
             }
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
