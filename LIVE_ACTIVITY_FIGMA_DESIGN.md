@@ -2,7 +2,17 @@
 **File:** [testtingclaudexfigma](https://www.figma.com/design/SuMsVkITTi0ZVnpJGHC5U7/testtingclaudexfigma)  
 **Build from existing components — do not redraw from scratch**
 
-> MCP could not write to this file (View seat on Team Airtribe). Use this doc to assemble frames manually in Figma, or upgrade to Full/Dev seat and re-run the agent.
+> **Auto-build:** Run the Figma plugin at [`figma/plugins/live-activity-builder/`](figma/plugins/live-activity-builder/) — see [Run the builder plugin](#run-the-builder-plugin) below.
+
+### Run the builder plugin
+
+1. Open [testtingclaudexfigma](https://www.figma.com/design/SuMsVkITTi0ZVnpJGHC5U7/testtingclaudexfigma?node-id=360-2854) in **Figma desktop** (logged in as `anurag.s@cred.club`).
+2. **Plugins → Development → Import plugin from manifest…**
+3. Select [`figma/plugins/live-activity-builder/manifest.json`](figma/plugins/live-activity-builder/manifest.json)
+4. **Plugins → Development → cdmusic Live Activity Builder → Run**
+5. Frames appear in a **Live Activity & Widgets** section to the right of node `360:2854`.
+
+Creates: `LA/Banner` (playing / paused / longTitle), Lock Screen mock, Dynamic Island expanded, Home widget medium.
 
 ---
 

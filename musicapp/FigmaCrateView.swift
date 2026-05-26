@@ -39,18 +39,29 @@ struct FigmaCrateView: View {
         .frame(height: effectiveHeight, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(FigmaTheme.panelGrey)
+        .overlay(alignment: .top) {
+            if let msg = vm.saveToastMessage {
+                Text(msg)
+                    .font(.custom("Helvetica", size: 12 * s).weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14 * s)
+                    .padding(.vertical, 8 * s)
+                    .background(Color.black.opacity(0.82))
+                    .clipShape(Capsule())
+                    .padding(.top, 12 * s)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
     }
 
     // MARK: - Inner cream (`305:2742`)
 
     private var innerCreamBlock: some View {
         VStack(spacing: c.innerStackGap * s) {
-            FigmaCrateHeader(scale: s, onClose: {
-                vm.impact(.light)
-                onCollapsePanel()
-            })
+            crateHeader
 
             VStack(spacing: c.bodySectionGap * s) {
+                if vm.crateSavePhase != .idle { dropZone }
                 carousel
                 songStrip
             }
@@ -66,10 +77,63 @@ struct FigmaCrateView: View {
         .clipShape(RoundedRectangle(cornerRadius: c.innerRadius * s, style: .continuous))
     }
 
+
+    private var crateHeader: some View {
+        let saving = vm.crateSavePhase != .idle
+        let morph = morphAmount
+
+        return ZStack(alignment: .top) {
+            FigmaCrateHeader(scale: s, onClose: {
+                if saving { vm.cancelCrateSave() } else {
+                    vm.impact(.light)
+                    onCollapsePanel()
+                }
+            })
+            .opacity(saving ? 0 : 1)
+
+            if saving {
+                HStack {
+                    Spacer(minLength: 0)
+                    CratesLogoMorphView(
+                        morphProgress: morph,
+                        savedCount: vm.savedCrateStore.count,
+                        scale: s
+                    )
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, c.headerPadding * s)
+                .padding(.top, c.headerPadding * s)
+            }
+        }
+    }
+
+    private var morphAmount: CGFloat {
+        switch vm.crateSavePhase {
+        case .idle, .lifting: return vm.crateSavePhase == .lifting ? 0.25 : 0
+        case .morphing: return 0.65
+        case .dropReady, .settling: return 1
+        }
+    }
+
+    private var dropZone: some View {
+        RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
+            .stroke(FigmaTheme.orangeAccent.opacity(0.55), lineWidth: 2)
+            .background(
+                RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
+                    .fill(FigmaTheme.orangeAccent.opacity(0.08))
+            )
+            .frame(height: 64 * s)
+            .padding(.horizontal, outerPad)
+            .opacity(vm.crateSavePhase == .dropReady ? 1 : 0.3)
+            .animation(.easeInOut(duration: 0.25), value: vm.crateSavePhase)
+    }
+
     // MARK: - Vinyl carousel (`305:2756`)
 
     @StateObject private var scrollMotion = CrateScrollMotionTracker()
     @State private var carouselViewportWidth: CGFloat = 0
+    @State private var saveDragOffset: CGSize = .zero
+    @State private var saveLiftIndex: Int?
 
     private var carousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -84,15 +148,11 @@ struct FigmaCrateView: View {
                         leadingPad: outerPad,
                         viewportWidth: carouselViewportWidth
                     )
-                    CrateVinylRippleView(
-                        sleeveIndex: vm.crateSleeveIndex(for: index),
-                        discArtwork: vm.crateDiscArtwork(for: index),
-                        labelColor: vm.crateAccentColor(for: index),
-                        rotation: spinning ? vm.cdAngle : 0,
-                        cellSize: vinylCell,
-                        parallaxNorm: parallax,
-                        scrollVelocity: scrollMotion.velocityX,
-                        onTap: { vm.crateVinylTapped(at: index) }
+                    crateVinylCell(
+                        index: index,
+                        selected: selected,
+                        spinning: spinning,
+                        parallax: parallax
                     )
                 }
             }
@@ -114,6 +174,57 @@ struct FigmaCrateView: View {
             }
         }
         .frame(height: vinylCell)
+    }
+
+    @ViewBuilder
+    private func crateVinylCell(index: Int, selected: Bool, spinning: Bool, parallax: CGFloat) -> some View {
+        let lifted = saveLiftIndex == index || vm.crateSaveDragIndex == index
+        let liftScale: CGFloat = lifted ? 1.12 : 1
+
+        CrateVinylRippleView(
+            sleeveIndex: vm.crateSleeveIndex(for: index),
+            discArtwork: vm.crateDiscArtwork(for: index),
+            labelColor: vm.crateAccentColor(for: index),
+            rotation: spinning ? vm.cdAngle : 0,
+            cellSize: vinylCell,
+            parallaxNorm: parallax,
+            scrollVelocity: scrollMotion.velocityX,
+            onTap: {
+                guard vm.crateSavePhase == .idle else { return }
+                vm.crateVinylTapped(at: index)
+            }
+        )
+        .scaleEffect(liftScale)
+        .rotation3DEffect(.degrees(lifted ? -10 : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
+        .offset(lifted ? saveDragOffset : .zero)
+        .zIndex(lifted ? 10 : 0)
+        .gesture(saveGesture(for: index))
+    }
+
+    private func saveGesture(for index: Int) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in
+                saveLiftIndex = index
+                vm.beginCrateSave(at: index)
+            }
+            .simultaneously(with:
+                DragGesture(minimumDistance: 8)
+                    .onChanged { value in
+                        guard vm.crateSavePhase != .idle, vm.crateSaveDragIndex == index || saveLiftIndex == index else { return }
+                        saveLiftIndex = index
+                        saveDragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        guard vm.crateSaveDragIndex == index || saveLiftIndex == index else { return }
+                        if vm.crateSavePhase == .dropReady, value.translation.height > 36 {
+                            vm.commitCrateSave(at: index)
+                        } else {
+                            vm.cancelCrateSave()
+                        }
+                        saveLiftIndex = nil
+                        saveDragOffset = .zero
+                    }
+            )
     }
 
     // MARK: - Song strip (`305:2794`)

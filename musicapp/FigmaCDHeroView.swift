@@ -33,6 +33,7 @@ struct FigmaCDHeroView: View {
 
 struct FigmaCDJewelCase: View {
     @ObservedObject var vm: MusicPlayerViewModel
+    var allowsInteraction: Bool = true
 
     @State private var caseDragAnchor: CGFloat = 0
     @State private var isCaseDragging = false
@@ -65,6 +66,16 @@ struct FigmaCDJewelCase: View {
         }
         .frame(width: Self.side, height: Self.side, alignment: .topLeading)
         .clipped()
+        .contentShape(Rectangle())
+        .simultaneousGesture(allowsInteraction ? cdHoldGesture : nil)
+    }
+
+    private var cdHoldGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in
+                guard vm.crateSavePhase == .idle else { return }
+                vm.beginCrateSave(at: vm.crateActiveIndex, fromHero: true)
+            }
     }
 
     // MARK: - Layers
@@ -96,9 +107,9 @@ struct FigmaCDJewelCase: View {
         }
         .frame(width: w, height: h)
         .contentShape(Circle())
-        .allowsHitTesting(vm.isHeroDiscInteractive)
-        .highPriorityGesture(vm.isHeroDiscInteractive ? discSpinGesture : nil)
-        .simultaneousGesture(vm.isHeroDiscInteractive ? discTapGestures : nil)
+        .allowsHitTesting(allowsInteraction && vm.isHeroDiscInteractive)
+        .highPriorityGesture(allowsInteraction && vm.isHeroDiscInteractive ? discSpinGesture : nil)
+        .simultaneousGesture(allowsInteraction && vm.isHeroDiscInteractive ? discTapGestures : nil)
     }
 
     @ViewBuilder
@@ -132,7 +143,7 @@ struct FigmaCDJewelCase: View {
             slideFraction: slideFraction,
             caseSlideDistance: Self.cd.caseSlideDistance
         ))
-        .gesture(trayDragGesture)
+        .gesture(allowsInteraction ? trayDragGesture : nil)
     }
 
     // MARK: - Tray drag (case hit region only — disc keeps scrub)

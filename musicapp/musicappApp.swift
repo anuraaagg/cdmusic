@@ -11,6 +11,12 @@ import SwiftUI
 struct musicappApp: App {
     init() {
         GoogleFontsRegistrar.registerBundledFonts()
+        #if DEBUG
+        let crateFailures = SavedCrateStoreTests.run()
+        if !crateFailures.isEmpty {
+            print("[SavedCrateStoreTests]", crateFailures.joined(separator: "; "))
+        }
+        #endif
     }
 
     var body: some Scene {

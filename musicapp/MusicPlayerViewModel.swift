@@ -127,6 +127,15 @@ final class MusicPlayerViewModel: ObservableObject {
     // UI sheets
     @Published var showSettings = false
     @Published var showLibrary  = false
+    @Published var showSavedCrate = false
+
+    // Saved crate
+    let savedCrateStore = SavedCrateStore.shared
+    @Published var crateSavePhase: CrateSavePhase = .idle
+    @Published var crateSaveDragIndex: Int?
+    @Published var crateSaveFromHero = false
+    @Published var saveToastMessage: String?
+    private var preSavePanelRevealFraction: CGFloat?
 
     // Settings
     @Published var selectedSkin:         CDSkin = .normal
@@ -154,6 +163,7 @@ final class MusicPlayerViewModel: ObservableObject {
     }
     /// Guards against MPMusicPlayer briefly reporting `.paused` right after `play()`.
     private var userRequestedPlayback = false
+    private var storeCancellable: AnyCancellable?
 
     private enum PlaybackStore {
         static let lastPersistentID = "figma.lastTrackPersistentID"
@@ -164,6 +174,9 @@ final class MusicPlayerViewModel: ObservableObject {
 
     init() {
         selectedSkin = CrateCatalog.entry(for: crateActiveIndex).skin
+        storeCancellable = savedCrateStore.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         requestAuthAndSetup()
     }
 
@@ -629,6 +642,164 @@ final class MusicPlayerViewModel: ObservableObject {
         }
     }
 
+
+    // MARK: - Saved crate
+
+    func openSavedCrate() {
+        impact(.light)
+        showSettings = false
+        showLibrary = false
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            showSavedCrate = true
+        }
+    }
+
+    func closeSavedCrate() {
+        showSavedCrate = false
+    }
+
+    var crateSaveMorphProgress: CGFloat {
+        switch crateSavePhase {
+        case .idle: return 0
+        case .lifting: return 0.25
+        case .morphing: return 0.65
+        case .dropReady, .settling: return 1
+        }
+    }
+
+    func beginCrateSave(at index: Int, fromHero: Bool = false) {
+        guard crateSavePhase == .idle else { return }
+        crateSaveDragIndex = index
+        crateSaveFromHero = fromHero
+        impact(.medium)
+
+        if fromHero {
+            preSavePanelRevealFraction = controlPanelRevealFraction
+            openCaseTray(animated: true)
+        } else if controlPanelRevealFraction > 0.08 {
+            preSavePanelRevealFraction = controlPanelRevealFraction
+        }
+
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            controlPanelRevealFraction = 0
+            crateSavePhase = .lifting
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
+                self.crateSavePhase = .morphing
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                self.crateSavePhase = .dropReady
+            }
+        }
+    }
+
+    func cancelCrateSave() {
+        crateSaveDragIndex = nil
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
+            crateSavePhase = .idle
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.endCrateSaveSession(restorePanel: true)
+        }
+    }
+
+    func commitCrateSave(at index: Int) {
+        guard crateSavePhase == .dropReady || crateSavePhase == .morphing else { return }
+        crateSavePhase = .settling
+        impact(.heavy)
+        playDrawerLatchSound()
+
+        let moment = makeSavedMoment(fromCrateIndex: index)
+        savedCrateStore.save(moment)
+
+        saveToastMessage = "Saved to My Crate"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            self.saveToastMessage = nil
+        }
+
+        crateSaveDragIndex = nil
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            crateSavePhase = .idle
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
+            self.endCrateSaveSession(restorePanel: true)
+        }
+    }
+
+    private func endCrateSaveSession(restorePanel: Bool) {
+        let fromHero = crateSaveFromHero
+        crateSaveFromHero = false
+        guard restorePanel, let prev = preSavePanelRevealFraction else {
+            preSavePanelRevealFraction = nil
+            return
+        }
+        preSavePanelRevealFraction = nil
+        if fromHero {
+            closeCaseTray(animated: true)
+        }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            controlPanelRevealFraction = prev
+        }
+    }
+
+    func makeSavedMoment(fromCrateIndex index: Int) -> SavedMoment {
+        var title = crateStripTitle(for: index)
+        var artist = artistName
+        var trackID: UInt64?
+        var art = crateDiscArtwork(for: index)
+
+        if tracks.indices.contains(index) {
+            let item = tracks[index]
+            title = (item.title ?? title).uppercased()
+            artist = item.artist ?? artist
+            trackID = item.persistentID
+            art = item.artwork?.image(at: CGSize(width: 512, height: 512)) ?? art
+        } else {
+            let crate = CrateCatalog.entry(for: index)
+            title = crate.title.uppercased()
+            artist = crate.artist
+        }
+
+        let accent = crateAccentColor(for: index)
+        let hex = UInt32(accent.rgbaHex)
+
+        return SavedMoment(
+            trackPersistentID: trackID,
+            title: title,
+            artist: artist,
+            skin: selectedSkin,
+            accentHex: hex,
+            artwork: art ?? albumArtwork
+        )
+    }
+
+    func loadSavedMoment(_ moment: SavedMoment) {
+        impact(.medium)
+        applySkin(moment.skin)
+
+        if let pid = moment.trackPersistentID,
+           let item = tracks.first(where: { $0.persistentID == pid }) {
+            if let idx = tracks.firstIndex(where: { $0.persistentID == pid }) {
+                crateActiveIndex = idx
+                applyCratePresentation(at: idx)
+            }
+            play(item: item)
+            return
+        }
+
+        trackTitle = moment.title
+        artistName = moment.artist
+        albumArtwork = moment.artworkImage
+        albumTitle = ""
+        duration = 237
+        currentTime = 0
+        isPlaying = true
+        startTimers()
+    }
+
     func closeLibrary() {
         showLibrary = false
         libraryDetent = .medium
@@ -965,5 +1136,13 @@ final class MusicPlayerViewModel: ObservableObject {
     private func formatTime(_ s: Double) -> String {
         let s = max(0, s)
         return String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
+    }
+}
+
+private extension UIColor {
+    var rgbaHex: UInt32 {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (UInt32(r * 255) << 16) | (UInt32(g * 255) << 8) | UInt32(b * 255)
     }
 }

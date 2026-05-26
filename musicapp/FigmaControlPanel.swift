@@ -130,7 +130,9 @@ struct FigmaControlPanel: View {
             counterText: drawerJam.counter,
             scale: s,
             isPlaying: vm.isPlaying,
-            onDialTap: { vm.openLibrary() }
+            onDialTap: { vm.openLibrary() },
+            onCrateTap: { vm.openSavedCrate() },
+            savedCrateCount: vm.savedCrateStore.count
         )
     }
 

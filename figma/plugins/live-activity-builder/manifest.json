@@ -1,0 +1,8 @@
+{
+  "name": "cdmusic Live Activity Builder",
+  "id": "cdmusic-live-activity-builder",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}
