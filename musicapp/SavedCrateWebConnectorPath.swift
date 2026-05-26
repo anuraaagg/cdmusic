@@ -34,9 +34,9 @@ enum SavedCrateWebConnectorPath {
         let nx = -uy
         let ny = ux
 
-        /// Thinner attachment at discs than previous build.
-        let halfWideStart = max(3.2, min(startRadius * 0.17, length * 0.12))
-        let halfWideEnd = max(3.2, min(endRadius * 0.17, length * 0.12))
+        /// Rim half-width (~½ prior build).
+        let halfWideStart = max(1.6, min(startRadius * 0.085, length * 0.06))
+        let halfWideEnd = max(1.6, min(endRadius * 0.085, length * 0.06))
         let halfWideMid = max(1.15, min(halfWideStart, halfWideEnd) * 0.24)
 
         let mid = CGPoint(x: (start.x + end.x) * 0.5, y: (start.y + end.y) * 0.5)
