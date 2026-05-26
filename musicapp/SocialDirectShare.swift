@@ -86,7 +86,7 @@ enum SocialDirectShare {
                 return true
             }
         }
-        /// Last resort: bare `twitter://` / `twitter://` often opens main client.
+        /// Last resort: bare `twitter://` often opens the installed client home / composer affordances.
         if let u = URL(string: "twitter://"), UIApplication.shared.canOpenURL(u) {
             UIApplication.shared.open(u, options: [:], completionHandler: nil)
             return true
