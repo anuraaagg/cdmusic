@@ -12,6 +12,7 @@ enum SavedCrateStoreTests {
             trackPersistentID: 123,
             title: "TEST TRACK",
             artist: "TEST ARTIST",
+            genre: "SYNTH",
             skin: .led,
             accentHex: 0xFF0000,
             artwork: UIImage(systemName: "music.note")

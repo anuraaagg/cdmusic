@@ -58,6 +58,7 @@ struct FigmaControlPanel: View {
     private var sheetTopGroove: some View {
         FigmaSheetTopGroove(scale: s)
             .contentShape(Rectangle())
+            .accessibilityIdentifier("controlPanel.groove")
             .gesture(panelDrag)
     }
 
@@ -130,9 +131,7 @@ struct FigmaControlPanel: View {
             counterText: drawerJam.counter,
             scale: s,
             isPlaying: vm.isPlaying,
-            onDialTap: { vm.openLibrary() },
-            onCrateTap: { vm.openSavedCrate() },
-            savedCrateCount: vm.savedCrateStore.count
+            onDialTap: { vm.openLibrary() }
         )
     }
 

@@ -21,6 +21,27 @@ final class SavedCrateStore: ObservableObject {
 
     var count: Int { moments.count }
 
+    /// Saved moments shown in the crate UI — real saves, or DEBUG demo vinyls when empty.
+    var displayMoments: [SavedMoment] {
+        #if DEBUG
+        if !moments.isEmpty { return moments }
+        guard !ProcessInfo.processInfo.arguments.contains("-NoSavedCrateDemo") else { return [] }
+        return SavedCrateDemoData.moments
+        #else
+        return moments
+        #endif
+    }
+
+    var displayCount: Int { displayMoments.count }
+
+    var isShowingDemoData: Bool {
+        #if DEBUG
+        moments.isEmpty && !displayMoments.isEmpty
+        #else
+        false
+        #endif
+    }
+
     @discardableResult
     func save(_ moment: SavedMoment) -> Bool {
         if moments.count >= maxCount { moments.removeLast() }

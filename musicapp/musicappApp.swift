@@ -16,6 +16,14 @@ struct musicappApp: App {
         if !crateFailures.isEmpty {
             print("[SavedCrateStoreTests]", crateFailures.joined(separator: "; "))
         }
+        let webFailures = SavedCrateWebGraphTests.run()
+        if !webFailures.isEmpty {
+            print("[SavedCrateWebGraphTests]", webFailures.joined(separator: "; "))
+        }
+        let crateLayoutFailures = MilkCrateStackLayoutTests.run()
+        if !crateLayoutFailures.isEmpty {
+            print("[MilkCrateStackLayoutTests]", crateLayoutFailures.joined(separator: "; "))
+        }
         #endif
     }
 

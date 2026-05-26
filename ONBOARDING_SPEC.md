@@ -116,7 +116,7 @@ if showOnboarding {
 |------|----------|----------|
 | 0 | **Flip-phone** playback / for your **local library.** | No streaming. No accounts. / Your Music app, your crate. |
 | 1 | Browse **vinyl & CDs** / in the crate carousel. | Swipe the panel. Pick a disc. Press play. |
-| 2 | **Four skins.** One player. / NORMAL · LED · CRT · VINYL | Mechanical controls. Real haptics. |
+| 2 | **Mechanical controls.** / **Real haptics.** | Scratch the disc. Feel every key. |
 
 Footer: `No sign-up required unless you want to / store your library preferences.`
 

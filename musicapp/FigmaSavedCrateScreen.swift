@@ -1,29 +1,29 @@
 import SwiftUI
 
+// MARK: - Saved crate full screen (`396:3505` web · `401:3707` crates)
+
 struct FigmaSavedCrateScreen: View {
     @ObservedObject var vm: MusicPlayerViewModel
     @StateObject private var crateController = MilkCrateSceneController()
     @State private var sharePayload: SharePayload?
     @State private var isSharing = false
     @State private var shareProgress: Float = 0
-    @State private var shareStyle: CrateShareImageGenerator.CrateShareStyle = .cratePopOut
+    @State private var selectedMomentID: UUID?
 
     private var store: SavedCrateStore { vm.savedCrateStore }
+    private var moments: [SavedMoment] { store.displayMoments }
+    private var viewMode: SavedCrateViewMode { vm.savedCrateViewMode }
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                header
-                Spacer(minLength: 8)
-                crateView
-                metaStrip
-                Spacer(minLength: 12)
-                hintBar
+                creamHeader
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                shareFooter
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
 
             if isSharing {
                 Color.black.opacity(0.45).ignoresSafeArea()
@@ -32,124 +32,159 @@ struct FigmaSavedCrateScreen: View {
                         .tint(.white)
                         .frame(width: 200)
                     Text("Preparing share…")
-                        .font(.custom("Helvetica", size: 13))
+                        .font(FigmaFont.mono(13))
                         .foregroundStyle(.white.opacity(0.8))
                 }
             }
         }
         .onAppear {
-            crateController.updateSleeves(moments: store.moments)
+            selectedMomentID = moments.first?.id
+            crateController.updateSleeves(moments: moments)
         }
         .onChange(of: store.moments.count) { _, _ in
-            crateController.updateSleeves(moments: store.moments)
+            if selectedMomentID == nil || !moments.contains(where: { $0.id == selectedMomentID }) {
+                selectedMomentID = moments.first?.id
+            }
+            crateController.updateSleeves(moments: moments)
         }
         .sheet(item: $sharePayload) { payload in
             ShareSheet(items: shareItems(from: payload.images))
         }
     }
 
-    private var header: some View {
-        HStack {
-            Button {
-                vm.closeSavedCrate()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+    // MARK: - Header (`399:3667`)
+
+    private var creamHeader: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .center) {
+                pressLogo
+                    .frame(width: 48, height: 20, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                SavedCrateHybridTabSwitch(
+                    mode: Binding(
+                        get: { vm.savedCrateViewMode },
+                        set: { vm.savedCrateViewMode = $0 }
+                    )
+                )
+
+                Spacer(minLength: 0)
+
+                closeButton
+                    .frame(width: 48, height: 24, alignment: .trailing)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("savedCrate.close")
 
-            Spacer()
-
-            Text("My Crate")
-                .font(FigmaFont.libraryTitle(18))
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            Button {
-                beginShare()
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(store.moments.isEmpty)
-            .opacity(store.moments.isEmpty ? 0.35 : 1)
+            Rectangle()
+                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.75))
+                .frame(height: 2)
         }
-    }
-
-    private var crateView: some View {
-        MilkCrateSceneView(controller: crateController, allowsInteraction: true)
-            .frame(height: 320)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-            )
-            .onTapGesture {
-                playFrontMoment()
-            }
-    }
-
-    private var metaStrip: some View {
-        let moment = frontMoment
-        return VStack(spacing: 4) {
-            Text(moment?.title.uppercased() ?? "EMPTY CRATE")
-                .font(.custom("Helvetica", size: 14).weight(.semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Text(moment?.artist ?? "Long-press the CD to save a moment")
-                .font(.custom("Helvetica", size: 12))
-                .foregroundStyle(.white.opacity(0.55))
-                .lineLimit(1)
-        }
+        .padding(16)
         .padding(.top, 16)
     }
 
-    private var hintBar: some View {
-        HStack {
-            Text("← swipe →")
-                .font(.custom("Helvetica", size: 11))
-                .foregroundStyle(.white.opacity(0.35))
-            Spacer()
-            Text("\(store.count) saved")
-                .font(.custom("Helvetica", size: 11))
-                .foregroundStyle(.white.opacity(0.35))
-        }
-        .padding(.bottom, 24)
+    private var pressLogo: some View {
+        Image(FigmaImage.cratesLogo)
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(height: 20)
+            .accessibilityHidden(true)
     }
 
-    private var frontMoment: SavedMoment? {
-        guard store.moments.indices.contains(crateController.frontIndex) else {
-            return store.moments.first
+    private var closeButton: some View {
+        Button {
+            vm.closeSavedCrate()
+        } label: {
+            Image(FigmaImage.cratesClose)
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
-        return store.moments[crateController.frontIndex]
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close saved crate")
+        .accessibilityIdentifier("savedCrate.close")
     }
 
-    private func playFrontMoment() {
-        guard let moment = frontMoment else { return }
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        switch viewMode {
+        case .web:
+            SavedCrateWebView(
+                moments: moments,
+                selectedID: selectedMomentID,
+                artworkFor: { vm.savedMomentDiscArtwork(for: $0) },
+                onSelect: selectMoment
+            )
+
+        case .crate:
+            SavedCrateTabView(
+                vm: vm,
+                controller: crateController,
+                selectedMomentID: selectedMomentID,
+                onSelect: selectMoment
+            )
+        }
+    }
+
+    // MARK: - Share footer (`401:3679`)
+
+    private var shareFooter: some View {
+        FigmaButtonHalf.midGrey(label: "SHARE", flex: false, scale: 117.333 / 176) {
+            beginShare()
+        }
+        .frame(width: 117.333, height: 32)
+        .disabled(moments.isEmpty)
+        .opacity(moments.isEmpty ? 0.4 : 1)
+        .padding(.bottom, 28)
+        .accessibilityIdentifier("savedCrate.share")
+    }
+
+    // MARK: - Selection (stay open)
+
+    private var selectedMoment: SavedMoment? {
+        if let id = selectedMomentID, let m = moments.first(where: { $0.id == id }) {
+            return m
+        }
+        if moments.indices.contains(crateController.frontIndex) {
+            return moments[crateController.frontIndex]
+        }
+        return moments.first
+    }
+
+    private func selectMoment(_ moment: SavedMoment) {
+        selectedMomentID = moment.id
+        vm.impact(.light)
         vm.loadSavedMoment(moment)
-        vm.closeSavedCrate()
     }
+
+    // MARK: - Share
 
     private func beginShare() {
-        guard let moment = frontMoment else { return }
+        guard let moment = selectedMoment else { return }
         isSharing = true
         shareProgress = 0
-        crateController.setPopOut(1)
+
+        if viewMode == .crate {
+            crateController.setPopOut(1)
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            let snap: UIImage? = nil
+            let snapshot = viewMode == .web ? renderWebSnapshot() : nil
+            let style: CrateShareImageGenerator.CrateShareStyle = viewMode == .web ? .floatingStack : .cratePopOut
+
             CrateShareImageGenerator.generate(
                 moment: moment,
-                allMoments: store.moments,
-                style: shareStyle,
+                allMoments: moments,
+                style: style,
                 cdAngle: vm.cdAngle,
-                crateSnapshot: snap,
+                crateSnapshot: snapshot,
                 progress: { shareProgress = $0 }
             ) { images in
                 isSharing = false
@@ -159,10 +194,91 @@ struct FigmaSavedCrateScreen: View {
         }
     }
 
+    @MainActor
+    private func renderWebSnapshot() -> UIImage? {
+        let layout = SavedCrateWebGraph.build(
+            moments: moments,
+            viewport: CGSize(width: 390, height: 560)
+        )
+        let view = ZStack(alignment: .topLeading) {
+            SavedCrateDottedBackground(size: layout.canvasSize)
+            SavedCrateWebVectorConnectors(
+                nodes: layout.nodes,
+                edges: layout.edges,
+                canvasSize: layout.canvasSize
+            )
+            ForEach(layout.nodes) { node in
+                SavedCrateWebDiscNode(
+                    artwork: vm.savedMomentDiscArtwork(for: node.moment),
+                    diameter: node.diameter,
+                    isSelected: node.id == selectedMomentID
+                )
+                .position(node.center)
+            }
+        }
+        .frame(width: layout.canvasSize.width, height: layout.canvasSize.height)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = UIScreen.main.scale
+        return renderer.uiImage
+    }
+
     private func shareItems(from images: ShareImages) -> [Any] {
-        var items: [Any] = [images.instagramStory, images.instagramFeed]
+        var items: [Any] = [images.instagramStory, images.instagramFeed, images.socialPortrait]
         if let mp4 = images.mp4URL { items.append(mp4) }
         return items
+    }
+}
+
+// MARK: - Crates tab (`401:3707`)
+
+private struct SavedCrateTabView: View {
+    @ObservedObject var vm: MusicPlayerViewModel
+    @ObservedObject var controller: MilkCrateSceneController
+    var selectedMomentID: UUID?
+    let onSelect: (SavedMoment) -> Void
+
+    private var store: SavedCrateStore { vm.savedCrateStore }
+    private var moments: [SavedMoment] { store.displayMoments }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+
+            if moments.isEmpty {
+                emptyCrateIllustration
+            } else {
+                MilkCrateSceneView(controller: controller, allowsInteraction: true)
+                    .frame(width: 300, height: 320)
+                    .onTapGesture {
+                        if let moment = frontMoment {
+                            onSelect(moment)
+                        }
+                    }
+            }
+
+            Text(moments.isEmpty ? "save music to crate" : "fav music saved")
+                .font(FigmaFont.libraryTitle(22))
+                .foregroundStyle(Color(red: 0.05, green: 0.05, blue: 0.04))
+                .padding(.top, moments.isEmpty ? 20 : 12)
+
+            Spacer(minLength: 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("savedCrate.crateTab")
+    }
+
+    private var emptyCrateIllustration: some View {
+        MilkCrateSceneView(controller: controller, allowsInteraction: false)
+            .frame(width: 300, height: 320)
+            .opacity(0.92)
+    }
+
+    private var frontMoment: SavedMoment? {
+        guard moments.indices.contains(controller.frontIndex) else {
+            return moments.first
+        }
+        return moments[controller.frontIndex]
     }
 }
 
@@ -179,7 +295,6 @@ struct ShareSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
-
 
 struct SharePayload: Identifiable {
     let id = UUID()

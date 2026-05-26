@@ -37,6 +37,8 @@ struct FigmaCDJewelCase: View {
 
     @State private var caseDragAnchor: CGFloat = 0
     @State private var isCaseDragging = false
+    /// Live fraction while dragging — avoids publishing to the VM each frame (prevents gesture / disc conflicts).
+    @State private var dragSlideFraction: CGFloat?
 
     @State private var discDragStartAngle: Double?
     @State private var discLastAngle: Double?
@@ -46,7 +48,7 @@ struct FigmaCDJewelCase: View {
     private static let side = FigmaTheme.heroCDSize
     private static let cd = FigmaTheme.CD3052722.self
 
-    private var slideFraction: CGFloat { vm.caseSlideFraction }
+    private var slideFraction: CGFloat { dragSlideFraction ?? vm.caseSlideFraction }
 
     private var discOffsetX: CGFloat {
         Self.cd.discClosedOffsetX + Self.cd.discSlideDistance * slideFraction
@@ -66,15 +68,24 @@ struct FigmaCDJewelCase: View {
         }
         .frame(width: Self.side, height: Self.side, alignment: .topLeading)
         .clipped()
-        .contentShape(Rectangle())
+        .contentShape(
+            JewelCaseHitRegion(
+                externalDragTarget: !allowsInteraction,
+                slideFraction: slideFraction,
+                caseSlideDistance: Self.cd.caseSlideDistance,
+                expanded: isCaseDragging
+            )
+        )
+        .gesture(allowsInteraction ? trayDragGesture : nil)
         .simultaneousGesture(allowsInteraction ? cdHoldGesture : nil)
+        .animation(nil, value: slideFraction)
     }
 
     private var cdHoldGesture: some Gesture {
         LongPressGesture(minimumDuration: 0.45)
             .onEnded { _ in
                 guard vm.crateSavePhase == .idle else { return }
-                vm.beginCrateSave(at: vm.crateActiveIndex, fromHero: true)
+                vm.beginCrateDrop(at: vm.crateActiveIndex, fromHero: true)
             }
     }
 
@@ -107,9 +118,9 @@ struct FigmaCDJewelCase: View {
         }
         .frame(width: w, height: h)
         .contentShape(Circle())
-        .allowsHitTesting(allowsInteraction && vm.isHeroDiscInteractive)
-        .highPriorityGesture(allowsInteraction && vm.isHeroDiscInteractive ? discSpinGesture : nil)
-        .simultaneousGesture(allowsInteraction && vm.isHeroDiscInteractive ? discTapGestures : nil)
+        .allowsHitTesting(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging)
+        .highPriorityGesture(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging ? discSpinGesture : nil)
+        .simultaneousGesture(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging ? discTapGestures : nil)
     }
 
     @ViewBuilder
@@ -139,17 +150,13 @@ struct FigmaCDJewelCase: View {
                 .allowsHitTesting(false)
         }
         .frame(width: Self.side, height: Self.side)
-        .contentShape(CaseTrayHitShape(
-            slideFraction: slideFraction,
-            caseSlideDistance: Self.cd.caseSlideDistance
-        ))
-        .gesture(allowsInteraction ? trayDragGesture : nil)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Tray drag (case hit region only — disc keeps scrub)
 
     private var trayDragGesture: some Gesture {
-        DragGesture(minimumDistance: 6)
+        DragGesture(minimumDistance: 6, coordinateSpace: .local)
             .onChanged { value in
                 let horiz = abs(value.translation.width)
                 let vert = abs(value.translation.height)
@@ -161,16 +168,11 @@ struct FigmaCDJewelCase: View {
                     vm.impact(.soft)
                 }
 
-                let next = CaseTrayPhysics.dragFraction(
+                dragSlideFraction = CaseTrayPhysics.dragFraction(
                     anchor: caseDragAnchor,
                     horizontalTranslation: value.translation.width,
                     slideDistance: Self.cd.caseSlideDistance
                 )
-                var t = Transaction()
-                t.disablesAnimations = true
-                withTransaction(t) {
-                    vm.caseSlideFraction = next
-                }
             }
             .onEnded { _ in
                 guard isCaseDragging else { return }
@@ -180,7 +182,9 @@ struct FigmaCDJewelCase: View {
     }
 
     private func finishTrayDrag() {
-        let target = CaseTrayPhysics.snapTarget(fraction: slideFraction)
+        let current = dragSlideFraction ?? vm.caseSlideFraction
+        dragSlideFraction = nil
+        let target = CaseTrayPhysics.snapTarget(fraction: current)
         vm.selectionChanged()
         withAnimation(CaseTrayPhysics.snapAnimation) {
             vm.caseSlideFraction = target
@@ -247,23 +251,28 @@ struct FigmaCDJewelCase: View {
 
 // MARK: - Case hit region
 
-/// Draggable region tracks the case still visible inside the hero clip as it slides left.
-private struct CaseTrayHitShape: Shape {
+/// In-app tray uses the sliding band so the thumb stays on shell plastic; crate sheet hero copy uses full rect so drops work even when tray is slid open (`slideFraction > 0`).
+private struct JewelCaseHitRegion: Shape {
+    /// `true` = crate-sheet copy (`allowsInteraction == false`): whole jewel frame is draggable.
+    var externalDragTarget: Bool
     var slideFraction: CGFloat
     var caseSlideDistance: CGFloat
+    var expanded: Bool
 
     func path(in rect: CGRect) -> Path {
+        if externalDragTarget {
+            return Path(rect)
+        }
         var p = Path()
+        if expanded {
+            p.addRect(rect)
+            return p
+        }
         let startX = caseSlideDistance * slideFraction
         let width = max(0, rect.width - startX)
         guard width > 0 else { return p }
         p.addRect(CGRect(x: startX, y: 0, width: width, height: rect.height))
         return p
-    }
-
-    var animatableData: CGFloat {
-        get { slideFraction }
-        set { slideFraction = newValue }
     }
 }
 

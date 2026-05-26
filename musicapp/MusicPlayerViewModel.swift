@@ -128,6 +128,7 @@ final class MusicPlayerViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showLibrary  = false
     @Published var showSavedCrate = false
+    @Published var savedCrateViewMode: SavedCrateViewMode = .web
 
     // Saved crate
     let savedCrateStore = SavedCrateStore.shared
@@ -135,7 +136,6 @@ final class MusicPlayerViewModel: ObservableObject {
     @Published var crateSaveDragIndex: Int?
     @Published var crateSaveFromHero = false
     @Published var saveToastMessage: String?
-    private var preSavePanelRevealFraction: CGFloat?
 
     // Settings
     @Published var selectedSkin:         CDSkin = .normal
@@ -645,10 +645,13 @@ final class MusicPlayerViewModel: ObservableObject {
 
     // MARK: - Saved crate
 
-    func openSavedCrate() {
+    func openSavedCrate(preferWeb: Bool = false) {
         impact(.light)
         showSettings = false
         showLibrary = false
+        if preferWeb {
+            savedCrateViewMode = .web
+        }
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
             showSavedCrate = true
         }
@@ -658,56 +661,53 @@ final class MusicPlayerViewModel: ObservableObject {
         showSavedCrate = false
     }
 
-    var crateSaveMorphProgress: CGFloat {
-        switch crateSavePhase {
-        case .idle: return 0
-        case .lifting: return 0.25
-        case .morphing: return 0.65
-        case .dropReady, .settling: return 1
-        }
-    }
-
-    func beginCrateSave(at index: Int, fromHero: Bool = false) {
+    func beginCrateDrop(at index: Int, fromHero: Bool = false) {
         guard crateSavePhase == .idle else { return }
         crateSaveDragIndex = index
         crateSaveFromHero = fromHero
         impact(.medium)
+        crateSavePhase = .presenting
+    }
 
-        if fromHero {
-            preSavePanelRevealFraction = controlPanelRevealFraction
-            openCaseTray(animated: true)
-        } else if controlPanelRevealFraction > 0.08 {
-            preSavePanelRevealFraction = controlPanelRevealFraction
-        }
-
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-            controlPanelRevealFraction = 0
-            crateSavePhase = .lifting
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
-                self.crateSavePhase = .morphing
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
-                self.crateSavePhase = .dropReady
-            }
+    /// Called after the drop sheet springs from peek to the expanded detent.
+    func crateDropSheetDidFinishExpanding() {
+        guard crateSavePhase == .presenting else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            crateSavePhase = .expanded
         }
     }
 
-    func cancelCrateSave() {
+    /// Cancels during pick-up phase (not during save animation / confirmation).
+    func cancelCrateDrop() {
+        guard crateSavePhase != .success && crateSavePhase != .settling else { return }
         crateSaveDragIndex = nil
+        crateSaveFromHero = false
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            crateSavePhase = .idle
+        }
+    }
+
+    /// Invoke after SwiftUI settles the disc into the crate (from `settling`).
+    func finishCrateDropSettling() {
+        guard crateSavePhase == .settling else { return }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            crateSavePhase = .success
+        }
+    }
+
+    /// User taps ✕ / scrim after a successful save.
+    func dismissCrateDropSuccess() {
+        guard crateSavePhase == .success else { return }
+        crateSaveDragIndex = nil
+        crateSaveFromHero = false
         withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
             crateSavePhase = .idle
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            self.endCrateSaveSession(restorePanel: true)
-        }
     }
 
-    func commitCrateSave(at index: Int) {
-        guard crateSavePhase == .dropReady || crateSavePhase == .morphing else { return }
+    func commitCrateDrop(at index: Int) {
+        /// Allow commit while the sheet is still in `.presenting` — drag was previously disabled until `crateDropSheetDidFinishExpanding()`, so early drags never registered.
+        guard crateSavePhase == .presenting || crateSavePhase == .expanded else { return }
         crateSavePhase = .settling
         impact(.heavy)
         playDrawerLatchSound()
@@ -721,33 +721,23 @@ final class MusicPlayerViewModel: ObservableObject {
         }
 
         crateSaveDragIndex = nil
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-            crateSavePhase = .idle
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
-            self.endCrateSaveSession(restorePanel: true)
-        }
     }
 
-    private func endCrateSaveSession(restorePanel: Bool) {
-        let fromHero = crateSaveFromHero
-        crateSaveFromHero = false
-        guard restorePanel, let prev = preSavePanelRevealFraction else {
-            preSavePanelRevealFraction = nil
-            return
-        }
-        preSavePanelRevealFraction = nil
-        if fromHero {
-            closeCaseTray(animated: true)
-        }
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-            controlPanelRevealFraction = prev
+    func closeCrateDropSheetChrome() {
+        switch crateSavePhase {
+        case .success:
+            dismissCrateDropSuccess()
+        case .settling:
+            break
+        default:
+            cancelCrateDrop()
         }
     }
 
     func makeSavedMoment(fromCrateIndex index: Int) -> SavedMoment {
         var title = crateStripTitle(for: index)
         var artist = artistName
+        var genre = ""
         var trackID: UInt64?
         var art = crateDiscArtwork(for: index)
 
@@ -755,12 +745,14 @@ final class MusicPlayerViewModel: ObservableObject {
             let item = tracks[index]
             title = (item.title ?? title).uppercased()
             artist = item.artist ?? artist
+            genre = (item.genre ?? "").uppercased()
             trackID = item.persistentID
             art = item.artwork?.image(at: CGSize(width: 512, height: 512)) ?? art
         } else {
             let crate = CrateCatalog.entry(for: index)
             title = crate.title.uppercased()
             artist = crate.artist
+            genre = crate.genrePlaceholder.uppercased()
         }
 
         let accent = crateAccentColor(for: index)
@@ -770,6 +762,7 @@ final class MusicPlayerViewModel: ObservableObject {
             trackPersistentID: trackID,
             title: title,
             artist: artist,
+            genre: genre,
             skin: selectedSkin,
             accentHex: hex,
             artwork: art ?? albumArtwork
@@ -897,6 +890,20 @@ final class MusicPlayerViewModel: ObservableObject {
     /// Disc fill for carousel vinyl — library artwork fills the full label (`356:2878`).
     func crateDiscArtwork(for index: Int) -> UIImage? {
         crateArtwork(for: index)
+    }
+
+    /// Saved web nodes — prefer live carousel / library artwork over persisted JPEG.
+    func savedMomentDiscArtwork(for moment: SavedMoment) -> UIImage? {
+        if let pid = moment.trackPersistentID,
+           let idx = tracks.firstIndex(where: { $0.persistentID == pid }) {
+            return crateDiscArtwork(for: idx)
+        }
+        if vinylCarouselCount > 0 {
+            for idx in 0..<vinylCarouselCount where crateStripTitle(for: idx) == moment.title {
+                if let art = crateDiscArtwork(for: idx) { return art }
+            }
+        }
+        return moment.artworkImage
     }
 
     func crateSleeveIndex(for index: Int) -> Int {

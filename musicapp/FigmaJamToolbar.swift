@@ -13,8 +13,6 @@ struct FigmaJamToolbar: View {
     var scale: CGFloat = 1
     var isPlaying: Bool = false
     var onDialTap: () -> Void
-    var onCrateTap: (() -> Void)? = nil
-    var savedCrateCount: Int = 0
 
     var body: some View {
         let m = FigmaTheme.JamToolbar.self
@@ -24,27 +22,9 @@ struct FigmaJamToolbar: View {
         let railW = m.railWidth * s
 
         HStack(alignment: .center, spacing: 0) {
-            Button {
-                onCrateTap?()
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    FigmaJamLeftRail(scale: s)
-                    if savedCrateCount > 0 {
-                        Text("\(savedCrateCount)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(FigmaTheme.textDark)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(FigmaTheme.orangeAccent.opacity(0.9))
-                            .clipShape(Capsule())
-                            .offset(x: -2, y: -2)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open saved crate")
-            .accessibilityIdentifier("savedCrate.open")
-            .frame(width: railW, height: clusterH)
+            FigmaJamLeftRail(scale: s)
+                .frame(width: railW, height: clusterH)
+                .accessibilityHidden(true)
 
             Spacer(minLength: m.clusterGapMin * s)
 

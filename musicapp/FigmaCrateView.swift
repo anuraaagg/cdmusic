@@ -61,7 +61,6 @@ struct FigmaCrateView: View {
             crateHeader
 
             VStack(spacing: c.bodySectionGap * s) {
-                if vm.crateSavePhase != .idle { dropZone }
                 carousel
                 songStrip
             }
@@ -77,63 +76,20 @@ struct FigmaCrateView: View {
         .clipShape(RoundedRectangle(cornerRadius: c.innerRadius * s, style: .continuous))
     }
 
-
     private var crateHeader: some View {
-        let saving = vm.crateSavePhase != .idle
-        let morph = morphAmount
-
-        return ZStack(alignment: .top) {
-            FigmaCrateHeader(scale: s, onClose: {
-                if saving { vm.cancelCrateSave() } else {
-                    vm.impact(.light)
-                    onCollapsePanel()
-                }
-            })
-            .opacity(saving ? 0 : 1)
-
-            if saving {
-                HStack {
-                    Spacer(minLength: 0)
-                    CratesLogoMorphView(
-                        morphProgress: morph,
-                        savedCount: vm.savedCrateStore.count,
-                        scale: s
-                    )
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, c.headerPadding * s)
-                .padding(.top, c.headerPadding * s)
-            }
-        }
-    }
-
-    private var morphAmount: CGFloat {
-        switch vm.crateSavePhase {
-        case .idle, .lifting: return vm.crateSavePhase == .lifting ? 0.25 : 0
-        case .morphing: return 0.65
-        case .dropReady, .settling: return 1
-        }
-    }
-
-    private var dropZone: some View {
-        RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
-            .stroke(FigmaTheme.orangeAccent.opacity(0.55), lineWidth: 2)
-            .background(
-                RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
-                    .fill(FigmaTheme.orangeAccent.opacity(0.08))
-            )
-            .frame(height: 64 * s)
-            .padding(.horizontal, outerPad)
-            .opacity(vm.crateSavePhase == .dropReady ? 1 : 0.3)
-            .animation(.easeInOut(duration: 0.25), value: vm.crateSavePhase)
+        FigmaCrateHeader(scale: s, onClose: {
+            vm.impact(.light)
+            onCollapsePanel()
+        }, onOpenSavedCrate: {
+            vm.impact(.light)
+            vm.openSavedCrate(preferWeb: true)
+        }, savedCount: vm.savedCrateStore.displayCount)
     }
 
     // MARK: - Vinyl carousel (`305:2756`)
 
     @StateObject private var scrollMotion = CrateScrollMotionTracker()
     @State private var carouselViewportWidth: CGFloat = 0
-    @State private var saveDragOffset: CGSize = .zero
-    @State private var saveLiftIndex: Int?
 
     private var carousel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -178,9 +134,6 @@ struct FigmaCrateView: View {
 
     @ViewBuilder
     private func crateVinylCell(index: Int, selected: Bool, spinning: Bool, parallax: CGFloat) -> some View {
-        let lifted = saveLiftIndex == index || vm.crateSaveDragIndex == index
-        let liftScale: CGFloat = lifted ? 1.12 : 1
-
         CrateVinylRippleView(
             sleeveIndex: vm.crateSleeveIndex(for: index),
             discArtwork: vm.crateDiscArtwork(for: index),
@@ -194,37 +147,13 @@ struct FigmaCrateView: View {
                 vm.crateVinylTapped(at: index)
             }
         )
-        .scaleEffect(liftScale)
-        .rotation3DEffect(.degrees(lifted ? -10 : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
-        .offset(lifted ? saveDragOffset : .zero)
-        .zIndex(lifted ? 10 : 0)
-        .gesture(saveGesture(for: index))
-    }
-
-    private func saveGesture(for index: Int) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.45)
-            .onEnded { _ in
-                saveLiftIndex = index
-                vm.beginCrateSave(at: index)
-            }
-            .simultaneously(with:
-                DragGesture(minimumDistance: 8)
-                    .onChanged { value in
-                        guard vm.crateSavePhase != .idle, vm.crateSaveDragIndex == index || saveLiftIndex == index else { return }
-                        saveLiftIndex = index
-                        saveDragOffset = value.translation
-                    }
-                    .onEnded { value in
-                        guard vm.crateSaveDragIndex == index || saveLiftIndex == index else { return }
-                        if vm.crateSavePhase == .dropReady, value.translation.height > 36 {
-                            vm.commitCrateSave(at: index)
-                        } else {
-                            vm.cancelCrateSave()
-                        }
-                        saveLiftIndex = nil
-                        saveDragOffset = .zero
-                    }
-            )
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    guard vm.crateSavePhase == .idle else { return }
+                    vm.beginCrateDrop(at: index, fromHero: false)
+                }
+        )
     }
 
     // MARK: - Song strip (`305:2794`)
@@ -271,6 +200,8 @@ struct FigmaCrateView: View {
 struct FigmaCrateHeader: View {
     var scale: CGFloat = 1
     var onClose: () -> Void = {}
+    var onOpenSavedCrate: (() -> Void)? = nil
+    var savedCount: Int = 0
 
     private var c: FigmaTheme.Crate.Type { FigmaTheme.Crate.self }
 
@@ -290,10 +221,30 @@ struct FigmaCrateHeader: View {
                 }
                 .frame(height: rowH)
 
-                Text("CRATES")
-                    .font(FigmaFont.libraryTitle(c.titleFontSize * s))
-                    .foregroundStyle(FigmaTheme.textDark)
-                    .allowsHitTesting(false)
+                Button {
+                    onOpenSavedCrate?()
+                } label: {
+                    HStack(spacing: 6 * s) {
+                        Text("CRATES")
+                            .font(FigmaFont.libraryTitle(c.titleFontSize * s))
+                            .foregroundStyle(FigmaTheme.textDark)
+                        if savedCount > 0 {
+                            Text("\(savedCount)")
+                                .font(.system(size: 9 * s, weight: .bold))
+                                .foregroundStyle(FigmaTheme.textDark)
+                                .padding(.horizontal, 5 * s)
+                                .padding(.vertical, 2 * s)
+                                .background(FigmaTheme.orangeAccent.opacity(0.9))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 8 * s)
+                    .padding(.vertical, 4 * s)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open saved crate web")
+                .accessibilityIdentifier("savedCrate.open")
             }
 
             Rectangle()
