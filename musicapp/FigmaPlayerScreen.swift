@@ -10,12 +10,13 @@ struct FigmaPlayerScreen: View {
             let layout = FigmaPlayerLayout.metrics(
                 viewportWidth: geo.size.width,
                 viewportHeight: geo.size.height,
-                safeAreaTop: FigmaTopHalf.heroSafeAreaTop,
+                safeAreaTop: safe.top,
                 safeAreaBottom: safe.bottom
             )
 
             VStack(spacing: 0) {
                 FigmaCDHeroView(vm: vm, spacing: layout.spacing)
+                    .scaleEffect(layout.scale, anchor: .top)
                     .frame(height: layout.heroContentHeight, alignment: .top)
                     .frame(maxWidth: .infinity)
 
@@ -32,7 +33,7 @@ struct FigmaPlayerScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onAppear {
                 vm.updateFigmaLayoutScale(for: geo.size.width)
-                vm.showControlCentre(animated: false)
+                vm.playerScreenDidAppear()
             }
             .onChange(of: geo.size.width) { _, nw in vm.updateFigmaLayoutScale(for: nw) }
         }

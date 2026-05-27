@@ -5,11 +5,12 @@ import UIKit
 
 struct FigmaSavedCrateScreen: View {
     @ObservedObject var vm: MusicPlayerViewModel
-    @StateObject private var crateController = MilkCrateSceneController()
     @State private var shareHubPayload: SavedCrateShareHubPayload?
     @State private var isSharing = false
     @State private var shareProgress: Float = 0
     @State private var selectedMomentID: UUID?
+    @State private var crateFrontIndex = 0
+    @State private var cratePopOutProgress: CGFloat = 0
 
     private var store: SavedCrateStore { vm.savedCrateStore }
     private var moments: [SavedMoment] { store.displayMoments }
@@ -49,13 +50,23 @@ struct FigmaSavedCrateScreen: View {
         }
         .onAppear {
             selectedMomentID = moments.first?.id
-            crateController.updateSleeves(moments: moments)
+            crateFrontIndex = 0
         }
         .onChange(of: store.moments.count) { _, _ in
             if selectedMomentID == nil || !moments.contains(where: { $0.id == selectedMomentID }) {
                 selectedMomentID = moments.first?.id
             }
-            crateController.updateSleeves(moments: moments)
+            if crateFrontIndex >= moments.count {
+                crateFrontIndex = max(0, moments.count - 1)
+            }
+        }
+        .onChange(of: crateFrontIndex) { _, idx in
+            guard moments.indices.contains(idx) else { return }
+            selectedMomentID = moments[idx].id
+        }
+        .onChange(of: selectedMomentID) { _, id in
+            guard let id, let idx = moments.firstIndex(where: { $0.id == id }) else { return }
+            if crateFrontIndex != idx { crateFrontIndex = idx }
         }
         .sheet(item: $shareHubPayload) { payload in
             SavedCrateShareHubSheet(payload: payload)
@@ -86,19 +97,17 @@ struct FigmaSavedCrateScreen: View {
             }
 
             Rectangle()
-                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.32))
-                .frame(height: 2)
+                .fill(Color.black.opacity(0.06))
+                .frame(height: 1)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 16)
+        .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
-        /// Same matte as WEB dotted canvas (`SavedCrateCanvasChrome.fieldFill`) — no frosted white strip.
         .background {
-            SavedCrateCanvasChrome.fieldFill
+            Color.white
                 .ignoresSafeArea(edges: .top)
         }
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
         .allowsHitTesting(true)
     }
 
@@ -145,7 +154,7 @@ struct FigmaSavedCrateScreen: View {
         case .crate:
             SavedCrateTabView(
                 vm: vm,
-                controller: crateController,
+                frontIndex: $crateFrontIndex,
                 selectedMomentID: selectedMomentID,
                 onSelect: selectMoment
             )
@@ -172,8 +181,8 @@ struct FigmaSavedCrateScreen: View {
         if let id = selectedMomentID, let m = moments.first(where: { $0.id == id }) {
             return m
         }
-        if moments.indices.contains(crateController.frontIndex) {
-            return moments[crateController.frontIndex]
+        if moments.indices.contains(crateFrontIndex) {
+            return moments[crateFrontIndex]
         }
         return moments.first
     }
@@ -191,11 +200,11 @@ struct FigmaSavedCrateScreen: View {
         isSharing = true
         shareProgress = 0
 
-        crateController.setPopOut(1)
+        cratePopOutProgress = 1
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000)
             let crateSnap = renderCrateSceneSnapshot()
-            crateController.setPopOut(0)
+            cratePopOutProgress = 0
             let webSnap = renderWebSnapshot()
             let shareMoments = moments
             let shareAngle = vm.cdAngle
@@ -238,14 +247,30 @@ struct FigmaSavedCrateScreen: View {
     private func renderCrateSceneSnapshot() -> UIImage? {
         let view = ZStack {
             SavedCrateCanvasChrome.fieldFill
-            MilkCrateSceneView(controller: crateController, allowsInteraction: false)
-                .frame(width: 300, height: 320)
+            SavedCrateFrontStackView(
+                moments: moments,
+                frontIndex: .constant(crateFrontIndex),
+                popOutProgress: cratePopOutProgress,
+                artworkFor: { vm.savedMomentDiscArtwork(for: $0) },
+                labelColorFor: savedMomentLabelColor,
+                allowsInteraction: false
+            )
         }
         .frame(width: 340, height: 380)
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = UIScreen.main.scale
         return renderer.uiImage
+    }
+
+    private func savedMomentLabelColor(_ moment: SavedMoment) -> UIColor {
+        if let hex = moment.accentHex {
+            let r = CGFloat((hex >> 16) & 0xFF) / 255
+            let g = CGFloat((hex >> 8) & 0xFF) / 255
+            let b = CGFloat(hex & 0xFF) / 255
+            return UIColor(red: r, green: g, blue: b, alpha: 1)
+        }
+        return UIColor(T3Color.labelDark.opacity(0.35))
     }
 
     @MainActor
@@ -282,7 +307,7 @@ struct FigmaSavedCrateScreen: View {
 
 private struct SavedCrateTabView: View {
     @ObservedObject var vm: MusicPlayerViewModel
-    @ObservedObject var controller: MilkCrateSceneController
+    @Binding var frontIndex: Int
     var selectedMomentID: UUID?
     let onSelect: (SavedMoment) -> Void
 
@@ -296,13 +321,14 @@ private struct SavedCrateTabView: View {
             if moments.isEmpty {
                 emptyCrateIllustration
             } else {
-                MilkCrateSceneView(controller: controller, allowsInteraction: true)
-                    .frame(width: 300, height: 320)
-                    .onTapGesture {
-                        if let moment = frontMoment {
-                            onSelect(moment)
-                        }
-                    }
+                SavedCrateFrontStackView(
+                    moments: moments,
+                    frontIndex: $frontIndex,
+                    artworkFor: { vm.savedMomentDiscArtwork(for: $0) },
+                    labelColorFor: labelColor(for:),
+                    allowsInteraction: true,
+                    onSelect: onSelect
+                )
             }
 
             Text(moments.isEmpty ? "save music to crate" : "fav music saved")
@@ -317,15 +343,22 @@ private struct SavedCrateTabView: View {
     }
 
     private var emptyCrateIllustration: some View {
-        MilkCrateSceneView(controller: controller, allowsInteraction: false)
-            .frame(width: 300, height: 320)
+        let metrics = SavedCrate2DLayout.metrics(forCrateWidth: 268)
+        return Image(FigmaImage.savedCrateGreen)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: metrics.crateWidth, height: metrics.crateHeight)
             .opacity(0.92)
     }
 
-    private var frontMoment: SavedMoment? {
-        guard moments.indices.contains(controller.frontIndex) else {
-            return moments.first
+    private func labelColor(for moment: SavedMoment) -> UIColor {
+        if let hex = moment.accentHex {
+            let r = CGFloat((hex >> 16) & 0xFF) / 255
+            let g = CGFloat((hex >> 8) & 0xFF) / 255
+            let b = CGFloat(hex & 0xFF) / 255
+            return UIColor(red: r, green: g, blue: b, alpha: 1)
         }
-        return moments[controller.frontIndex]
+        return UIColor(T3Color.labelDark.opacity(0.35))
     }
 }

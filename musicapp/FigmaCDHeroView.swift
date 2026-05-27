@@ -35,6 +35,7 @@ struct FigmaCDJewelCase: View {
     @ObservedObject var vm: MusicPlayerViewModel
     var allowsInteraction: Bool = true
 
+    @StateObject private var caseShineMotion = JewelCaseMotionShineModel()
     @State private var caseDragAnchor: CGFloat = 0
     @State private var isCaseDragging = false
     /// Live fraction while dragging — avoids publishing to the VM each frame (prevents gesture / disc conflicts).
@@ -58,27 +59,48 @@ struct FigmaCDJewelCase: View {
 
     private var caseOffsetX: CGFloat { -Self.cd.caseSlideDistance * slideFraction }
 
+    /// Leading band that still shows case plastic — tray drag only (not the exposed disc).
+    private var shellHitWidth: CGFloat {
+        if !allowsInteraction { return Self.side }
+        if isCaseDragging { return Self.side }
+        return max(0, Self.side - Self.cd.caseSlideDistance * slideFraction)
+    }
+
+    private var discInteractionEnabled: Bool {
+        allowsInteraction && slideFraction >= Self.cd.discInteractThreshold && !isCaseDragging
+    }
+
+    private var discCenter: CGPoint {
+        CGPoint(
+            x: discOffsetX + Self.cd.discWidth / 2,
+            y: discOffsetY + Self.cd.discHeight / 2
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             discLayer
-                .offset(x: discOffsetX, y: discOffsetY)
+                .position(discCenter)
+                .frame(width: Self.side, height: Self.side)
 
             caseLayer
                 .offset(x: caseOffsetX)
+
+            if allowsInteraction {
+                if discInteractionEnabled {
+                    discInteractionTarget
+                }
+                shellDragTarget
+            }
         }
         .frame(width: Self.side, height: Self.side, alignment: .topLeading)
         .clipped()
-        .contentShape(
-            JewelCaseHitRegion(
-                externalDragTarget: !allowsInteraction,
-                slideFraction: slideFraction,
-                caseSlideDistance: Self.cd.caseSlideDistance,
-                expanded: isCaseDragging
-            )
-        )
-        .gesture(allowsInteraction ? trayDragGesture : nil)
-        .simultaneousGesture(allowsInteraction ? cdHoldGesture : nil)
         .animation(nil, value: slideFraction)
+        .onAppear {
+            caseShineMotion.configure(size: CGSize(width: Self.side, height: Self.side))
+            caseShineMotion.start()
+        }
+        .onDisappear { caseShineMotion.stop() }
     }
 
     private var cdHoldGesture: some Gesture {
@@ -109,7 +131,7 @@ struct FigmaCDJewelCase: View {
                 .rotationEffect(.degrees(vm.cdAngle), anchor: .center)
                 .animation(nil, value: vm.cdAngle)
 
-            if vm.isHeroDiscInteractive {
+            if slideFraction >= Self.cd.discInteractThreshold {
                 Circle()
                     .stroke(Color.black.opacity(0.06), lineWidth: 1)
                     .frame(width: w, height: h)
@@ -117,10 +139,38 @@ struct FigmaCDJewelCase: View {
             }
         }
         .frame(width: w, height: h)
-        .contentShape(Circle())
-        .allowsHitTesting(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging)
-        .highPriorityGesture(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging ? discSpinGesture : nil)
-        .simultaneousGesture(allowsInteraction && vm.isHeroDiscInteractive && !isCaseDragging ? discTapGestures : nil)
+        .allowsHitTesting(false)
+    }
+
+    /// Spin / scrub / tap — full disc hit target; shell band above wins on the left edge.
+    private var discInteractionTarget: some View {
+        let w = Self.cd.discWidth
+        let h = Self.cd.discHeight
+
+        return Color.clear
+            .frame(width: w, height: h)
+            .contentShape(Circle())
+            .highPriorityGesture(discSpinGesture)
+            .simultaneousGesture(discTapGestures)
+            .simultaneousGesture(cdHoldGesture)
+            .position(discCenter)
+            .frame(width: Self.side, height: Self.side)
+    }
+
+    /// Case close/open — shell plastic band only (leading edge).
+    private var shellDragTarget: some View {
+        Color.clear
+            .frame(width: shellHitWidth, height: Self.side, alignment: .leading)
+            .contentShape(
+                JewelCaseHitRegion(
+                    externalDragTarget: !allowsInteraction,
+                    slideFraction: slideFraction,
+                    caseSlideDistance: Self.cd.caseSlideDistance,
+                    expanded: isCaseDragging
+                )
+            )
+            .gesture(trayDragGesture)
+            .simultaneousGesture(cdHoldGesture)
     }
 
     @ViewBuilder
@@ -134,12 +184,24 @@ struct FigmaCDJewelCase: View {
         }
     }
 
+    private var caseTrayMask: some View {
+        Image(FigmaImage.cdCaseTray)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: Self.side, height: Self.side)
+    }
+
     private var caseLayer: some View {
         ZStack(alignment: .topLeading) {
             Image(FigmaImage.cdCaseTray)
                 .resizable()
                 .scaledToFit()
                 .frame(width: Self.side, height: Self.side)
+                .allowsHitTesting(false)
+
+            JewelCaseGyroShineOverlay(focalPoint: caseShineMotion.focalPoint, size: Self.side)
+                .mask { caseTrayMask }
                 .allowsHitTesting(false)
 
             Image(FigmaImage.cdCaseSpine)
@@ -268,10 +330,10 @@ private struct JewelCaseHitRegion: Shape {
             p.addRect(rect)
             return p
         }
-        let startX = caseSlideDistance * slideFraction
-        let width = max(0, rect.width - startX)
-        guard width > 0 else { return p }
-        p.addRect(CGRect(x: startX, y: 0, width: width, height: rect.height))
+        // Case slides left as `slideFraction` increases — keep hits on the visible shell (leading band).
+        let shellWidth = max(0, rect.width - caseSlideDistance * slideFraction)
+        guard shellWidth > 0 else { return p }
+        p.addRect(CGRect(x: 0, y: 0, width: shellWidth, height: rect.height))
         return p
     }
 }

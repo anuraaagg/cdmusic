@@ -24,7 +24,7 @@ struct SavedCrateHybridTabSwitch: View {
             .accessibilityIdentifier("savedCrate.mode.web")
 
             Rectangle()
-                .fill(Color(red: 0.05, green: 0.05, blue: 0.04).opacity(0.12))
+                .fill(Color.black.opacity(0.08))
                 .frame(width: dividerW, height: h * 0.62)
 
             tabHalf(title: "CRATES", isActive: mode == .crate, width: halfW, height: h, scale: s) {

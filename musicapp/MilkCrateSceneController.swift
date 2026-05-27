@@ -1,21 +1,17 @@
 import RealityKit
 import UIKit
 
+/// Loads the bundled milk-crate glTF only — CDs are drawn in SwiftUI (`SavedCrateFrontStackView`).
 @MainActor
 final class MilkCrateSceneController: ObservableObject {
     let root = Entity()
     private let crateAnchor = Entity()
-    private let sleeveAnchor = Entity()
-    private var sleeveEntities: [ModelEntity] = []
 
-    @Published var frontIndex = 0
-    @Published var popOutProgress: CGFloat = 0
     @Published private(set) var crateLoaded = false
     @Published private(set) var usedProceduralCrate = false
 
     init() {
         root.addChild(crateAnchor)
-        root.addChild(sleeveAnchor)
         loadCrate()
     }
 
@@ -40,7 +36,7 @@ final class MilkCrateSceneController: ObservableObject {
                 }
             } catch {
                 #if DEBUG
-                print("[MilkCrateSceneController] glTF load failed (add scene.bin from Sketchfab or use procedural): \(error.localizedDescription)")
+                print("[MilkCrateSceneController] glTF load failed: \(error.localizedDescription)")
                 #endif
                 await MainActor.run {
                     self.addProceduralLatticeCrate()
@@ -49,7 +45,7 @@ final class MilkCrateSceneController: ObservableObject {
         }
     }
 
-    /// Green lattice milk crate (open slats — visible “holes”).
+    /// Green lattice milk crate (open slats — visible “holes”) when glTF is missing.
     func addProceduralLatticeCrate() {
         crateAnchor.children.removeAll()
         usedProceduralCrate = true
@@ -82,7 +78,6 @@ final class MilkCrateSceneController: ObservableObject {
         let slabT: Float = 0.018
         let post: Float = 0.036
 
-        // Floor grid (minimal inner surface)
         crateAnchor.addChild(plasticBox(
             [outer - 0.06, 0.02, outer - 0.06],
             [0, -h / 2 + 0.012, 0],
@@ -149,177 +144,5 @@ final class MilkCrateSceneController: ObservableObject {
         }
 
         crateLoaded = true
-    }
-
-    func updateSleeves(moments: [SavedMoment]) {
-        Task {
-            await rebuildSleeves(moments: moments)
-        }
-    }
-
-    /// While the 2D disc animates toward the rim, show the stack **without** the moment that just saved.
-    func showStackPriorToSaving(moments: [SavedMoment]) {
-        guard moments.count >= 2 else {
-            Task { await rebuildSleeves(moments: []) }
-            return
-        }
-        Task {
-            await rebuildSleeves(moments: Array(moments.dropFirst()))
-            frontIndex = 0
-        }
-    }
-
-    /// After cross-rim hand-off: animate the new sleeve from above into the front slot.
-    func insertSavingMomentAtFront(_ moment: SavedMoment) {
-        Task {
-            let sleeve = await makeSleeve(moment: moment)
-            sleeveAnchor.addChild(sleeve)
-            sleeveEntities.insert(sleeve, at: 0)
-            if sleeveEntities.count > 12, let tail = sleeveEntities.popLast() {
-                tail.removeFromParent()
-            }
-            frontIndex = 0
-            let landing = MilkCrateSleeveLayout.position(stackIndex: 0, frontIndex: frontIndex, count: sleeveEntities.count)
-            let spawn = landing + SIMD3<Float>(0, MilkCrateSleeveLayout.insertSpawnYOffset(), 0.032)
-            applyLayoutTransforms(animated: false, skipIndex: 0)
-            sleeve.position = spawn
-            orientStandingJacket(sleeve, stackIndex: 0)
-            await animateLanding(entity: sleeve, end: landing + SIMD3<Float>(0, 0.13, 0), duration: CrateDropAnimationSpec.sleeveLandingDurationSeconds)
-            layoutSleeves(animated: false)
-            notifyChange()
-        }
-    }
-
-    private func animateLanding(entity: ModelEntity, end: SIMD3<Float>, duration: TimeInterval) async {
-        let start = entity.position
-        let steps = max(14, Int(duration * 60))
-        for frame in 0..<steps {
-            let linear = Float(frame) / Float(max(steps - 1, 1))
-            let t = 1 - (1 - linear) * (1 - linear)
-            entity.position = simd_mix(start, end, SIMD3<Float>(repeating: t))
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1e9 / Double(steps)))
-        }
-        entity.position = end
-    }
-
-    private func rebuildSleeves(moments: [SavedMoment]) async {
-        sleeveEntities.forEach { $0.removeFromParent() }
-        sleeveEntities.removeAll()
-        for moment in moments.prefix(12) {
-            let sleeve = await makeSleeve(moment: moment)
-            sleeveAnchor.addChild(sleeve)
-            sleeveEntities.append(sleeve)
-        }
-        if frontIndex >= sleeveEntities.count { frontIndex = max(0, sleeveEntities.count - 1) }
-        layoutSleeves(animated: false)
-        notifyChange()
-    }
-
-    private func makeSleeve(moment: SavedMoment) async -> ModelEntity {
-        let mesh = MeshResource.generatePlane(width: 0.26, depth: 0.0026)
-        var material = SimpleMaterial()
-        if let image = artworkUIImage(for: moment),
-           let cgImage = image.cgImage,
-           let tex = try? await TextureResource(image: cgImage, withName: moment.id.uuidString, options: .init(semantic: .color)) {
-            material.color = .init(tint: .white, texture: .init(tex))
-        } else if let hex = moment.accentHex {
-            material.color = .init(tint: UIColor.milkCrateAccent(hexRGB: hex))
-        } else {
-            material.color = .init(tint: UIColor(white: 0.42, alpha: 1))
-        }
-        material.roughness = 0.42
-        let entity = ModelEntity(mesh: mesh, materials: [material])
-        entity.name = moment.id.uuidString
-        return entity
-    }
-
-    private func artworkUIImage(for moment: SavedMoment) -> UIImage? {
-        if let ui = moment.artworkImage { return ui }
-        return UIImage(data: moment.artworkJPEG)
-    }
-
-    func layoutSleeves(animated: Bool) {
-        applyLayoutTransforms(animated: animated, skipIndex: nil)
-        notifyChange()
-    }
-
-    private func applyLayoutTransforms(animated: Bool, skipIndex: Int?) {
-        let count = sleeveEntities.count
-        for i in sleeveEntities.indices {
-            if let skip = skipIndex, i == skip { continue }
-            let sleeve = sleeveEntities[i]
-            var pos = MilkCrateSleeveLayout.position(stackIndex: i, frontIndex: frontIndex, count: count)
-            let d = MilkCrateSleeveLayout.normalizedDepth(stackIndex: i, frontIndex: frontIndex)
-            pos.z += MilkCrateSleeveLayout.popOffsetZ(popOutProgress: i == frontIndex ? Float(popOutProgress) : 0)
-            pos.y += 0.13
-            orientStandingJacket(sleeve, stackIndex: i)
-            let sc = CGFloat(MilkCrateSleeveLayout.sleeveScale(depthFromFrontHighlight: max(d, 0)))
-            sleeve.scale = SIMD3<Float>(repeating: Float(sc))
-
-            if animated {
-                let end = pos
-                let jitterDir: Float = (i % 2 == 0) ? 1 : -1
-                let jitter = SIMD3<Float>(jitterDir * 0.0065, Float(i) * -0.0085, Float(i) * 0.012)
-                let start = sleeve.position + jitter
-                Task { @MainActor in
-                    await tweenSleeve(entity: sleeve, from: start, to: end, duration: 0.24 + Double(i) * 0.04)
-                }
-            } else {
-                sleeve.position = pos
-            }
-        }
-    }
-
-    private func orientStandingJacket(_ sleeve: ModelEntity, stackIndex _: Int) {
-        let fi = frontIndex
-        guard let idx = sleeveEntities.firstIndex(where: { $0 === sleeve }) else { return }
-        let d = MilkCrateSleeveLayout.normalizedDepth(stackIndex: idx, frontIndex: fi)
-        let yaw = MilkCrateSleeveLayout.yawHighlightPerDepth * d
-        sleeve.orientation = simd_mul(
-            simd_quatf(angle: -.pi / 2, axis: [1, 0, 0]),
-            simd_quatf(angle: yaw, axis: [0, 1, 0])
-        )
-    }
-
-    private func tweenSleeve(entity: ModelEntity, from start: SIMD3<Float>, to end: SIMD3<Float>, duration: TimeInterval) async {
-        let steps = max(14, Int(duration * 60))
-        entity.position = start
-        for frame in 0..<steps {
-            let linear = Float(frame) / Float(max(steps - 1, 1))
-            let t = 1 - (1 - linear) * (1 - linear)
-            entity.position = simd_mix(start, end, SIMD3<Float>(repeating: t))
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1e9 / Double(steps)))
-        }
-        entity.position = end
-    }
-
-    func flipForward() {
-        guard frontIndex < sleeveEntities.count - 1 else { return }
-        frontIndex += 1
-        layoutSleeves(animated: true)
-    }
-
-    func flipBackward() {
-        guard frontIndex > 0 else { return }
-        frontIndex -= 1
-        layoutSleeves(animated: true)
-    }
-
-    func setPopOut(_ progress: CGFloat) {
-        popOutProgress = max(0, min(1, progress))
-        layoutSleeves(animated: false)
-    }
-
-    private func notifyChange() {
-        objectWillChange.send()
-    }
-}
-
-private extension UIColor {
-    static func milkCrateAccent(hexRGB: UInt32, alpha: CGFloat = 1) -> UIColor {
-        let r = CGFloat((hexRGB >> 16) & 0xFF) / 255
-        let g = CGFloat((hexRGB >> 8) & 0xFF) / 255
-        let b = CGFloat(hexRGB & 0xFF) / 255
-        return UIColor(red: r, green: g, blue: b, alpha: alpha)
     }
 }

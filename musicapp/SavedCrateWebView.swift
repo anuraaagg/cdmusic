@@ -2,9 +2,9 @@ import SwiftUI
 
 // MARK: - Saved crate CD web (`396:3505` / vector `396:3513`)
 
-/// Full-bleed surface behind dotted WEB field — avoids stacking white discs/strands/glass strands on `#fff`.
+/// Full-bleed white canvas — header, web field, and crate tab share one surface.
 enum SavedCrateCanvasChrome {
-    static let fieldFill = Color(red: 0.93, green: 0.935, blue: 0.94)
+    static let fieldFill = Color.white
 }
 
 struct SavedCrateWebView: View {
@@ -14,8 +14,6 @@ struct SavedCrateWebView: View {
     let onSelect: (SavedMoment) -> Void
 
     private static let webCanvasCoordinateSpace = "crateWeb.canvas"
-    private static let webPinchMin: CGFloat = 0.45
-    private static let webPinchMax: CGFloat = 3.25
 
     @State private var layout = SavedCrateWebLayout(
         nodes: [],
@@ -30,10 +28,6 @@ struct SavedCrateWebView: View {
     /// Active gesture (strand endpoints update live via `nodesForDrawing`).
     @State private var dragNodeId: UUID?
     @State private var dragTranslation = CGSize.zero
-
-    /// Starts at `1`; pinch adjusts with pan/drag simultaneous on the infinite canvas.
-    @State private var webPinchScale: CGFloat = 1
-    @State private var webPinchBaseline: CGFloat = 1
 
 #if DEBUG
     /// Stable fake moments for canvas panning/strand QA (DEBUG only).
@@ -78,80 +72,60 @@ struct SavedCrateWebView: View {
         GeometryReader { geo in
             let viewport = geo.size
 
-            ScrollViewReader { proxy in
-                ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                    ZStack(alignment: .topLeading) {
-                        SavedCrateDottedBackground(size: layout.canvasSize)
-
-                        SavedCrateWebVectorConnectors(
-                            nodes: nodesForDrawing,
-                            edges: layout.edges,
-                            canvasSize: layout.canvasSize
-                        )
-
-                        ForEach(nodesForDrawing) { node in
-                            SavedCrateWebDiscNode(
-                                artwork: artworkFor(node.moment),
-                                diameter: node.diameter,
-                                isSelected: node.id == selectedID
-                            )
-                            .frame(width: node.diameter, height: node.diameter)
-                            .contentShape(Circle())
-                            .position(node.center)
-                            .gesture(canvasDiscGesture(for: node, viewport: viewport))
-                        }
-
-                        Color.clear
-                            .frame(width: 1, height: 1)
-                            .position(layout.graphCenter)
-                            .id("webGraphCenter")
-                    }
-                    .coordinateSpace(name: Self.webCanvasCoordinateSpace)
-                    .scaleEffect(webPinchScale, anchor: .topLeading)
-                    .frame(
-                        width: layout.canvasSize.width * webPinchScale,
-                        height: layout.canvasSize.height * webPinchScale
-                    )
+            SavedCrateWebZoomScrollView(
+                canvasSize: layout.canvasSize,
+                graphCenter: layout.graphCenter
+            ) {
+                webCanvasLayer(viewport: viewport)
+            }
+            .overlay {
+                if composedMoments().isEmpty {
+                    emptyState
                 }
-                .scrollIndicators(.hidden)
-                .background(SavedCrateCanvasChrome.fieldFill)
-                .overlay {
-                    if composedMoments().isEmpty {
-                        emptyState
-                    }
-                }
-                .simultaneousGesture(
-                    MagnifyGesture()
-                        .onChanged { value in
-                            let next = webPinchBaseline * value.magnification
-                            webPinchScale = min(max(next, SavedCrateWebView.webPinchMin), SavedCrateWebView.webPinchMax)
-                        }
-                        .onEnded { _ in
-                            webPinchBaseline = webPinchScale
-                        }
-                )
-                .onAppear {
-                    refreshStressSupplementIfNeeded()
-                    relayout(viewport: viewport, resetStoredCenters: true)
-                    centerScroll(proxy: proxy)
-                }
-                .onChange(of: momentIdentifiersSignature(for: moments)) { _, _ in
-                    refreshStressSupplementIfNeeded()
-                    webPinchScale = 1
-                    webPinchBaseline = 1
-                    nodeCentersById = [:]
-                    dragNodeId = nil
-                    dragTranslation = .zero
-                    relayout(viewport: viewport, resetStoredCenters: true)
-                    centerScroll(proxy: proxy)
-                }
-                .onChange(of: viewport) { _, size in
-                    relayout(viewport: size, resetStoredCenters: false)
-                }
+            }
+            .onAppear {
+                refreshStressSupplementIfNeeded()
+                relayout(viewport: viewport, resetStoredCenters: true)
+            }
+            .onChange(of: momentIdentifiersSignature(for: moments)) { _, _ in
+                refreshStressSupplementIfNeeded()
+                nodeCentersById = [:]
+                dragNodeId = nil
+                dragTranslation = .zero
+                relayout(viewport: viewport, resetStoredCenters: true)
+            }
+            .onChange(of: viewport) { _, size in
+                relayout(viewport: size, resetStoredCenters: false)
             }
         }
         .background(SavedCrateCanvasChrome.fieldFill)
         .accessibilityIdentifier("savedCrate.web")
+    }
+
+    private func webCanvasLayer(viewport: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            SavedCrateDottedBackground(size: layout.canvasSize)
+
+            SavedCrateWebVectorConnectors(
+                nodes: nodesForDrawing,
+                edges: layout.edges,
+                canvasSize: layout.canvasSize
+            )
+
+            ForEach(nodesForDrawing) { node in
+                SavedCrateWebDiscNode(
+                    artwork: artworkFor(node.moment),
+                    diameter: node.diameter,
+                    isSelected: node.id == selectedID
+                )
+                .frame(width: node.diameter, height: node.diameter)
+                .contentShape(Circle())
+                .position(node.center)
+                .gesture(canvasDiscGesture(for: node, viewport: viewport))
+            }
+        }
+        .coordinateSpace(name: Self.webCanvasCoordinateSpace)
+        .frame(width: layout.canvasSize.width, height: layout.canvasSize.height, alignment: .topLeading)
     }
 
     /// Drag moves the disc itself; tapered strands redraw from moving edge anchors. Tiny movement counts as tap-to-select.
@@ -257,12 +231,6 @@ struct SavedCrateWebView: View {
             floorCanvas: resetStoredCenters ? nil : layout.canvasSize
         )
     }
-
-    private func centerScroll(proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            proxy.scrollTo("webGraphCenter", anchor: .center)
-        }
-    }
 }
 
 // MARK: - Dotted infinite field (`396:3505`)
@@ -288,7 +256,7 @@ struct SavedCrateDottedBackground: View {
                     )
                     context.fill(
                         Path(ellipseIn: rect),
-                        with: .color(Color(red: 0.82, green: 0.82, blue: 0.82).opacity(0.55))
+                        with: .color(Color(white: 0.86).opacity(0.9))
                     )
                     y += dotStep
                 }

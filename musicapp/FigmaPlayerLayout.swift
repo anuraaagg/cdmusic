@@ -46,8 +46,9 @@ enum FigmaPlayerLayout {
             safeAreaBottom: safeAreaBottom
         )
         let scale = spacing.scale
-        let topPadding = FigmaTopHalf.heroSafeAreaTop + spacing.heroTopPadding
-        let heroContent = FigmaTopHalf.contentStackHeight
+        let topInset = max(safeAreaTop, FigmaTopHalf.heroSafeAreaTop)
+        let topPadding = topInset + spacing.heroTopPadding
+        let heroContent = FigmaTopHalf.contentStackHeight * scale
         let gap = FigmaTheme.heroToPanelGap
         let collapsedH = FigmaTheme.panelCollapsedH * scale
 

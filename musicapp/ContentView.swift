@@ -12,16 +12,21 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            // Keep the player mounted during onboarding so layout, auth, and crate state
+            // are ready before the overlay dismisses (avoids a blank first frame on device).
+            Color.white.ignoresSafeArea(edges: .bottom)
+
+            FigmaPlayerScreen(vm: vm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(!showOnboarding)
+
             if showOnboarding {
                 FigmaOnboardingScreen {
                     hasCompletedOnboarding = true
+                    vm.playerScreenDidAppear()
                 }
                 .transition(.opacity)
-            } else {
-                Color.white.ignoresSafeArea(edges: .bottom)
-
-                FigmaPlayerScreen(vm: vm)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(20)
             }
 
             if !showOnboarding, vm.crateSavePhase != .idle {

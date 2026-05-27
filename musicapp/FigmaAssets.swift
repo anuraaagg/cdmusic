@@ -11,6 +11,8 @@ enum FigmaImage {
     static let cratesLogo = "crates_logo"   // Figma `305:2745` Press wordmark (PNG)
     static let cratesClose = "crates_close" // Figma `305:2745` bordered X (SVG)
     static let cratesStripAsterisk = "crates_asterisk"
+    /// Saved-crate PNG (green lattice crate — cropped from design reference).
+    static let savedCrateGreen = "saved_crate_green"
 
     static let vinylDiskBase = "vinyl_disk_base"
     static let vinylLabelPlaceholder = "vinyl_disk_label_placeholder"

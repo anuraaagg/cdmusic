@@ -20,16 +20,12 @@ private enum CrateDropSheetDetent: Equatable {
 
 /// Geometry cached at drop commit so settling animation stays in sync with the layout pass.
 private struct CrateSettleLayout: Equatable {
-    let fullWidth: CGFloat
-    let contentHeight: CGFloat
-    let opening: CGRect
-    let bottomPad: CGFloat
-    let vinylDiameter: CGFloat
+    let crateWidth: CGFloat
+    let discDiameter: CGFloat
 }
 
 struct FigmaCrateDropSheet: View {
     @ObservedObject var vm: MusicPlayerViewModel
-    @StateObject private var crateController = MilkCrateSceneController()
 
     @State private var sheetDetent: CrateDropSheetDetent = .peek
     @State private var vinylDragOffset: CGSize = .zero
@@ -37,16 +33,15 @@ struct FigmaCrateDropSheet: View {
     @State private var dragVelocityY: CGFloat = 0
     @State private var hoveringOpening = false
     @State private var expandTask: Task<Void, Never>?
-    @GestureState private var vinylDragActive = false
+    @State private var discDragActive = false
     /// Target layout when `commitCrateDrop` runs — feeds the settle spring.
     @State private var pendingSettleLayout: CrateSettleLayout?
 
-    /// Disc scales down slightly as it “drops in”.
+    /// Disc scales down as it flips into the crate slot.
     @State private var settlingScale: CGFloat = 1
-    /// Pitches the jewel toward the crate opening during the settle animation (flick / release in zone).
+    /// Card-flip pitch (INDmoney-style tilt back into depth).
     @State private var settlingTiltX: Double = 0
-    /// Hide the 2D jewel once the RealityKit sleeve spawns at the rim (no ghost disc).
-    @State private var hideJewelAfterRimHandoff = false
+    @State private var settlingTiltY: Double = 0
 
     private var c: FigmaTheme.Crate.Type { FigmaTheme.Crate.self }
 
@@ -104,23 +99,18 @@ struct FigmaCrateDropSheet: View {
                         if phase == .settling {
                             runSettleIntoCrate(scale: s)
                         } else if phase == .success {
-                            hideJewelAfterRimHandoff = false
-                            settlingScale = 1
-                            settlingTiltX = 0
-                            vinylDragOffset = .zero
-                            crateController.updateSleeves(moments: vm.savedCrateStore.moments)
+                            // Keep landed flip pose visible until dismiss — do not reset transforms.
                         }
                     }
                 }
             }
             .ignoresSafeArea(edges: .bottom)
             .onAppear {
-                crateController.updateSleeves(moments: vm.savedCrateStore.displayMoments)
-                hideJewelAfterRimHandoff = false
                 sheetDetent = .peek
                 vinylDragOffset = .zero
                 settlingScale = 1
                 settlingTiltX = 0
+                settlingTiltY = 0
                 hoveringOpening = false
                 pendingSettleLayout = nil
                 lastDragSample = nil
@@ -138,7 +128,8 @@ struct FigmaCrateDropSheet: View {
                     vinylDragOffset = .zero
                     settlingScale = 1
                     settlingTiltX = 0
-                    hideJewelAfterRimHandoff = false
+                    settlingTiltY = 0
+                    hoveringOpening = false
                     pendingSettleLayout = nil
                 }
             }
@@ -147,44 +138,34 @@ struct FigmaCrateDropSheet: View {
 
     // MARK: - Settle pipeline
 
-    private func runSettleIntoCrate(scale s: CGFloat) {
+    private func runSettleIntoCrate(scale _: CGFloat) {
         guard let lay = pendingSettleLayout else { return }
         pendingSettleLayout = nil
-        hideJewelAfterRimHandoff = false
 
-        /// Show peers only — avoids a duplicate sleeve while the 2D jewel approaches the rim.
-        crateController.showStackPriorToSaving(moments: vm.savedCrateStore.moments)
+        let metrics = SavedCrate2DLayout.metrics(forCrateWidth: lay.crateWidth)
+        let settleTarget = CGSize(
+            width: 0,
+            height: metrics.discLandedCenter.y - metrics.discRestCenter.y
+        )
 
-        let restBottom = lay.contentHeight - lay.bottomPad - lay.vinylDiameter * 0.5
-        let restX = lay.fullWidth * 0.5
-        let targetY = lay.opening.minY + lay.opening.height * 0.76 + 8 * s
-        let target = CGPoint(x: lay.opening.midX, y: targetY)
-        let settleTarget = CGSize(width: target.x - restX, height: target.y - restBottom)
-
-        withAnimation(.easeOut(duration: 0.1)) {
-            settlingScale = 1.035
-            settlingTiltX = -5
+        withAnimation(.easeOut(duration: CrateDropAnimationSpec.windUpDuration)) {
+            settlingScale = CrateDropAnimationSpec.windUpScale
+            settlingTiltX = CrateDropAnimationSpec.windUpTiltX
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
-            withAnimation(.interpolatingSpring(stiffness: 210, damping: 23)) {
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + CrateDropAnimationSpec.windUpDuration) {
+            withAnimation(.interpolatingSpring(
+                stiffness: CrateDropAnimationSpec.flipSpringStiffness,
+                damping: CrateDropAnimationSpec.flipSpringDamping
+            )) {
                 vinylDragOffset = settleTarget
-                settlingScale = CrateDropAnimationSpec.jewelScalePeak
-                settlingTiltX = CrateDropAnimationSpec.jewelTiltPeakDegrees
+                settlingScale = CrateDropAnimationSpec.landedScale
+                settlingTiltX = CrateDropAnimationSpec.landedTiltX
+                settlingTiltY = CrateDropAnimationSpec.landedTiltY
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(CrateDropAnimationSpec.jewelTweakDelaySeconds)) {
-            withAnimation(.easeOut(duration: 0.12)) {
-                settlingTiltX = CrateDropAnimationSpec.jewelTiltRestDegrees
-                settlingScale = CrateDropAnimationSpec.jewelScaleRest
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(CrateDropAnimationSpec.crossRimDelaySeconds)) {
-            hideJewelAfterRimHandoff = true
-            if let m = vm.savedCrateStore.moments.first {
-                crateController.insertSavingMomentAtFront(m)
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(CrateDropAnimationSpec.finishSettlingDelaySeconds)) {
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + CrateDropAnimationSpec.finishSettlingDelaySeconds) {
             vm.finishCrateDropSettling()
         }
     }
@@ -275,114 +256,128 @@ struct FigmaCrateDropSheet: View {
     // MARK: - Body (crate + vinyl)
 
     private func sheetBody(contentHeight: CGFloat, scale s: CGFloat, fullWidth: CGFloat) -> some View {
-        let vinylDiameter = vinylDisplayDiameter(scale: s)
-        let bottomPad = max(34 * s, 24) + FigmaTheme.homeIndicatorClearance + 6 * s
-        let crateHPadding = 20 * s
-        let opening = openingRect(
-            contentWidth: fullWidth - crateHPadding * 2,
-            contentHeight: contentHeight,
-            scale: s,
-            crateTopInset: 8 * s
-        )
-        /// Shift opening into full-width coords (opening was for inset crate column).
-        let openingGlobal = opening.offsetBy(dx: crateHPadding, dy: 0)
-        /// Easier commits than strict pixel overlap with RealityKit framing.
-        let hitTestOpening = openingGlobal.insetBy(dx: -38, dy: -48)
-
-        /// Drag is allowed as soon as the sheet is up (`.presenting`); waiting only for `.expanded` left a ~0.45s window where the disc ignored touches.
+        let crateWidth = min(fullWidth - 40 * s, 280 * s)
+        let metrics = SavedCrate2DLayout.metrics(forCrateWidth: crateWidth)
+        let discDiameter = metrics.discDiameter
         let vinylDragEnabled =
             vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded
+        let isSettlingOrSaved = vm.crateSavePhase == .settling || vm.crateSavePhase == .success
+        let discScale = isSettlingOrSaved ? settlingScale : 1
 
-        return ZStack(alignment: .bottom) {
-            VStack(spacing: 12 * s) {
-                MilkCrateSceneView(
-                    controller: crateController,
-                    /// Never compete with the draggable vinyl sheet — crate flip gestures are unavailable here.
-                    allowsInteraction: false
+        return ZStack(alignment: .top) {
+            if vm.crateSavePhase != .idle {
+                SavedCrate2DScene(
+                    crateWidth: crateWidth,
+                    discOffset: vinylDragOffset,
+                    discScale: discScale,
+                    discHitPadding: 44 * s,
+                    dragEnabled: vinylDragEnabled,
+                    onDragChanged: { value in
+                        handleDiscDragChanged(value, metrics: metrics)
+                    },
+                    onDragEnded: { value in
+                        handleDiscDragEnded(value, metrics: metrics, crateWidth: crateWidth)
+                    },
+                    disc: {
+                        crateDiscContent(
+                            scale: s,
+                            discDiameter: discDiameter
+                        )
+                    }
                 )
-                .frame(height: crateSceneHeight(contentHeight: contentHeight, scale: s))
-                .padding(.horizontal, 6 * s)
+                .padding(.top, max(8 * s, contentHeight * 0.04))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .accessibilityLabel("Drag disc into crate opening to save")
+                .accessibilityHint("Drag up into the crate, flick up, or tap disc when over the opening.")
+                .accessibilityIdentifier("crate.drop.vinyl")
             }
-            /// RealityKit/`RealityView` can sit above overlapping vinyl in hit order on some layouts; sheet body ignores crate subtree for hits.
-            .allowsHitTesting(false)
-            .padding(.vertical, vm.crateSavePhase == .success ? 16 * s : 12 * s)
-            .padding(.horizontal, crateHPadding)
-            /// Bottom-anchored: reserve space for the resting disc under the crate opening.
-            .padding(.bottom, bottomPad + vinylDiameter * 0.58 + 10 * s)
-            .frame(maxWidth: .infinity)
-            .zIndex(0)
-
-            Group {
-                if vm.crateSavePhase != .success {
-                    draggableVinyl(scale: s, diameter: vinylDiameter)
-                        .scaleEffect(vm.crateSavePhase == .settling ? settlingScale : 1)
-                        .padding(.bottom, bottomPad)
-                        .offset(vinylDragOffset)
-                        .opacity(vm.crateSavePhase == .settling && hideJewelAfterRimHandoff ? 0 : 1)
-                        .rotation3DEffect(
-                            .degrees(vm.crateSavePhase == .settling ? settlingTiltX : 0),
-                            axis: (x: 1, y: 0, z: 0),
-                            perspective: 0.55
-                        )
-                        .rotation3DEffect(
-                            .degrees(vinylDragEnabled && vinylDragActive && vm.crateSavePhase != .settling ? -9 : 0),
-                            axis: (x: 0, y: 1, z: 0),
-                            perspective: 0.48
-                        )
-                        .modifier(CrateDiscIdlePulse(
-                            phase: vm.crateSavePhase,
-                            isDragging: vinylDragActive,
-                            isPlaying: vm.isPlaying,
-                            isHeroJewelCase: vm.crateSaveFromHero,
-                            playbackAngle: vm.cdAngle
-                        ))
-                        /// Generous finger target independent of procedural layers / jewel alpha.
-                        .contentShape(Circle())
-                        .frame(width: vinylDiameter + 28 * s, height: vinylDiameter + 28 * s)
-                        .gesture(
-                            vinylDragGesture(
-                                hitTestOpening: hitTestOpening,
-                                settleOpening: opening,
-                                vinylDiameter: vinylDiameter,
-                                bottomPad: bottomPad,
-                                contentSize: CGSize(width: fullWidth, height: contentHeight)
-                            )
-                        )
-                        .simultaneousGesture(vinylTapCommitGesture(
-                            hitTestOpening: hitTestOpening,
-                            settleOpening: opening,
-                            vinylDiameter: vinylDiameter,
-                            bottomPad: bottomPad,
-                            contentSize: CGSize(width: fullWidth, height: contentHeight)
-                        ))
-                        .allowsHitTesting(vinylDragEnabled && vm.crateSavePhase != .settling)
-                }
-            }
-            .accessibilityLabel("Drag, flick up, or tap disc over opening to save")
-            .accessibilityHint("Lift the disc into the crate opening until it overlaps, tap, flick up, or release.")
-            .accessibilityIdentifier("crate.drop.vinyl")
-            .allowsHitTesting(vm.crateSavePhase != .success)
-            .zIndex(20)
-
         }
         .frame(height: contentHeight)
-        .coordinateSpace(name: CrateDropSheetSpace.name)
     }
 
-    private func crateSceneHeight(contentHeight: CGFloat, scale s: CGFloat) -> CGFloat {
-        switch sheetDetent {
-        case .peek:
-            return min(92 * s, contentHeight * 0.52)
-        case .drop:
-            return max(
-                contentHeight * 0.54,
-                min(318 * s, screenRelativeCrateCap(contentHeight))
-            )
+    private func handleDiscDragChanged(_ value: DragGesture.Value, metrics: SavedCrate2DLayout.Metrics) {
+        guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else { return }
+        discDragActive = true
+        let now = Date()
+        if let (t, prev) = lastDragSample {
+            let dt = max(0.012, now.timeIntervalSince(t))
+            dragVelocityY = CGFloat((value.translation.height - prev.height) / dt)
+        }
+        lastDragSample = (now, value.translation)
+
+        vinylDragOffset = CGSize(
+            width: value.translation.width,
+            height: value.translation.height
+        )
+
+        let center = metrics.discCenter(offset: vinylDragOffset)
+        let inside = metrics.forgivingDropZone.contains(center)
+        if inside != hoveringOpening {
+            hoveringOpening = inside
+            if inside { vm.impact(.light) }
         }
     }
 
-    private func screenRelativeCrateCap(_ contentHeight: CGFloat) -> CGFloat {
-        min(360, contentHeight * 0.62)
+    private func handleDiscDragEnded(
+        _ value: DragGesture.Value,
+        metrics: SavedCrate2DLayout.Metrics,
+        crateWidth: CGFloat
+    ) {
+        lastDragSample = nil
+        discDragActive = false
+        defer {
+            dragVelocityY = 0
+            hoveringOpening = false
+        }
+        guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else {
+            vinylDragOffset = .zero
+            return
+        }
+
+        let center = metrics.discCenter(offset: vinylDragOffset)
+        let inDropZone = metrics.forgivingDropZone.contains(center)
+        let predKick = value.predictedEndTranslation.height - value.translation.height
+        let flickUpHard =
+            (predKick < -40 && value.translation.height < -8)
+            || (dragVelocityY < -240 && value.translation.height < -12)
+        let flickUpAssist = metrics.flickAssistZone.contains(center)
+            && predKick < -18
+            && value.translation.height < -10
+            && dragVelocityY < -140
+        let liftedEnough = value.translation.height < -(metrics.discDiameter * 0.35)
+
+        if inDropZone || flickUpHard || flickUpAssist || liftedEnough {
+            pendingSettleLayout = CrateSettleLayout(crateWidth: crateWidth, discDiameter: metrics.discDiameter)
+            vm.commitCrateDrop(at: dropIndex)
+        } else {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.84)) {
+                vinylDragOffset = .zero
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func crateDiscContent(
+        scale s: CGFloat,
+        discDiameter: CGFloat
+    ) -> some View {
+        let vinylDragEnabled =
+            vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded
+        let isSettlingOrSaved = vm.crateSavePhase == .settling || vm.crateSavePhase == .success
+        let dragYaw = discDragActive && vinylDragEnabled && !isSettlingOrSaved ? -8.0 : 0.0
+        let flipTiltX = isSettlingOrSaved ? settlingTiltX : (hoveringOpening ? -6 : 0)
+        let flipTiltY = isSettlingOrSaved ? settlingTiltY : dragYaw
+
+        draggableVinyl(scale: s, diameter: discDiameter)
+            .crateDiscCardFlip(tiltX: flipTiltX, tiltY: flipTiltY)
+            .modifier(CrateDiscIdlePulse(
+                phase: vm.crateSavePhase,
+                isDragging: discDragActive,
+                isPlaying: vm.isPlaying,
+                isHeroJewelCase: false,
+                playbackAngle: vm.cdAngle
+            ))
+            .allowsHitTesting(false)
     }
 
     private func vinylDisplayDiameter(scale s: CGFloat) -> CGFloat {
@@ -392,167 +387,13 @@ struct FigmaCrateDropSheet: View {
     @ViewBuilder
     private func draggableVinyl(scale s: CGFloat, diameter: CGFloat) -> some View {
         let idx = dropIndex
-        if vm.crateSaveFromHero {
-            FigmaCDJewelCase(vm: vm, allowsInteraction: false)
-                .frame(width: diameter, height: diameter)
-        } else {
-            CrateProceduralDropVinyl(
-                discArtwork: vm.crateDiscArtwork(for: idx),
-                labelColor: vm.crateAccentColor(for: idx),
-                rotation: vm.isPlaying ? vm.cdAngle : 0,
-                diameter: diameter
-            )
-        }
-    }
-
-    private func openingRect(
-        contentWidth: CGFloat,
-        contentHeight: CGFloat,
-        scale s: CGFloat,
-        crateTopInset: CGFloat
-    ) -> CGRect {
-        /// Crate-stack is bottom-anchored; zone is enlarged so disc center overlaps count as “in the opening.”
-        let top = crateTopInset + contentHeight * 0.012
-        let h = max(112 * s, contentHeight * 0.42)
-        let inset = contentWidth * 0.045
-        return CGRect(x: inset, y: top, width: contentWidth - 2 * inset, height: h)
-    }
-
-    private func vinylCenter(
-        contentSize: CGSize,
-        vinylDiameter: CGFloat,
-        bottomPad: CGFloat,
-        offset: CGSize
-    ) -> CGPoint {
-        CGPoint(
-            x: contentSize.width * 0.5 + offset.width,
-            y: contentSize.height - bottomPad - vinylDiameter * 0.5 + offset.height
+        FigmaVinylView(
+            sleeveIndex: idx,
+            discArtwork: vm.crateSaveFromHero ? vm.heroDiscArtwork : vm.crateDiscArtwork(for: idx),
+            labelColor: vm.crateAccentColor(for: idx),
+            rotation: vm.isPlaying ? vm.cdAngle : 0,
+            cellSize: diameter
         )
-    }
-
-    private func vinylDragGesture(
-        hitTestOpening: CGRect,
-        settleOpening: CGRect,
-        vinylDiameter: CGFloat,
-        bottomPad: CGFloat,
-        contentSize: CGSize
-    ) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .named(CrateDropSheetSpace.name))
-            .updating($vinylDragActive) { _, state, _ in
-                state = true
-            }
-            .onChanged { value in
-                guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else { return }
-                let now = Date()
-                if let (t, prev) = lastDragSample {
-                    let dt = max(0.012, now.timeIntervalSince(t))
-                    dragVelocityY = CGFloat((value.translation.height - prev.height) / dt)
-                }
-                lastDragSample = (now, value.translation)
-
-                vinylDragOffset = CGSize(
-                    width: value.translation.width * 0.78,
-                    height: value.translation.height
-                )
-
-                let center = vinylCenter(
-                    contentSize: contentSize,
-                    vinylDiameter: vinylDiameter,
-                    bottomPad: bottomPad,
-                    offset: vinylDragOffset
-                )
-                let inside = hitTestOpening.contains(center)
-                if inside != hoveringOpening {
-                    hoveringOpening = inside
-                    if inside { vm.impact(.light) }
-                }
-            }
-            .onEnded { value in
-                lastDragSample = nil
-                defer {
-                    dragVelocityY = 0
-                    hoveringOpening = false
-                }
-                guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else {
-                    vinylDragOffset = .zero
-                    return
-                }
-
-                let center = vinylCenter(
-                    contentSize: contentSize,
-                    vinylDiameter: vinylDiameter,
-                    bottomPad: bottomPad,
-                    offset: vinylDragOffset
-                )
-                let inDropZone = hitTestOpening.contains(center)
-                /// Wider forgiving band above the rigid hit rect — catches upward flicks that don’t linger in the oval.
-                let flickAssistZone = hitTestOpening.insetBy(dx: -18, dy: -52)
-                let predKick = value.predictedEndTranslation.height - value.translation.height
-
-                /// Upward flick: combine predicted overshoot + measured velocity (`DragGesture` undershoots fast snaps).
-                let flickUpHard =
-                    (predKick < -48 && value.translation.height < -10)
-                    || (predKick < -85 && value.translation.height < -4)
-                    || (dragVelocityY < -280 && value.translation.height < -16)
-                    || (dragVelocityY < -520 && value.translation.height < -6)
-                /// Softer flick when the gesture already crossed into the assist cone.
-                let flickUpAssist = flickAssistZone.contains(center)
-                    && predKick < -22
-                    && value.translation.height < -14
-                    && dragVelocityY < -155
-
-                let flickUp = flickUpHard || flickUpAssist
-
-                let index = dropIndex
-
-                let layout = CrateSettleLayout(
-                    fullWidth: contentSize.width,
-                    contentHeight: contentSize.height,
-                    opening: settleOpening,
-                    bottomPad: bottomPad,
-                    vinylDiameter: vinylDiameter
-                )
-
-                if inDropZone || flickUp {
-                    pendingSettleLayout = layout
-                    vm.commitCrateDrop(at: index)
-                } else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                        vinylDragOffset = .zero
-                    }
-                }
-            }
-    }
-
-    /// Tap-to-save when the disc is already over the forgiving hit rect (matches drag release semantics).
-    private func vinylTapCommitGesture(
-        hitTestOpening: CGRect,
-        settleOpening: CGRect,
-        vinylDiameter: CGFloat,
-        bottomPad: CGFloat,
-        contentSize: CGSize
-    ) -> some Gesture {
-        TapGesture()
-            .onEnded { _ in
-                guard vm.crateSavePhase == .presenting || vm.crateSavePhase == .expanded else { return }
-                let center = vinylCenter(
-                    contentSize: contentSize,
-                    vinylDiameter: vinylDiameter,
-                    bottomPad: bottomPad,
-                    offset: vinylDragOffset
-                )
-                guard hitTestOpening.contains(center) else { return }
-                let layout = CrateSettleLayout(
-                    fullWidth: contentSize.width,
-                    contentHeight: contentSize.height,
-                    opening: settleOpening,
-                    bottomPad: bottomPad,
-                    vinylDiameter: vinylDiameter
-                )
-                pendingSettleLayout = layout
-                vm.impact(.light)
-                vm.commitCrateDrop(at: dropIndex)
-            }
     }
 
     private func scrimOpacity(sheetHeight: CGFloat, screenHeight: CGFloat) -> Double {
@@ -614,5 +455,5 @@ private struct CrateDiscIdlePulse: ViewModifier {
 }
 
 private enum CrateDropSheetSpace {
-    static let name = "crateDropSheet.body"
+    static let name = SavedCrate2DLayout.coordinateSpaceName
 }

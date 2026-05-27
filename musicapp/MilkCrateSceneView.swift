@@ -32,14 +32,5 @@ struct MilkCrateSceneView: View {
             content.add(rim)
         }
         .allowsHitTesting(allowsInteraction)
-        .gesture(
-            allowsInteraction
-                ? DragGesture(minimumDistance: 24)
-                    .onEnded { value in
-                        if value.translation.width < -30 { controller.flipForward() }
-                        else if value.translation.width > 30 { controller.flipBackward() }
-                    }
-                : nil
-        )
     }
 }

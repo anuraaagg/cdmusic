@@ -190,8 +190,39 @@ final class MusicPlayerViewModel: ObservableObject {
                 }
                 self.syncNowPlaying()
                 self.syncPlaybackState()
+                self.bootstrapDefaultCratePresentationIfNeeded()
             }
         }
+    }
+
+    /// Called when the root player is on-screen (launch and after onboarding).
+    func playerScreenDidAppear() {
+        refreshLibraryIfAuthorized()
+        bootstrapDefaultCratePresentationIfNeeded()
+        showControlCentre(animated: false)
+    }
+
+    private func refreshLibraryIfAuthorized() {
+        guard MPMediaLibrary.authorizationStatus() == .authorized else { return }
+        guard tracks.isEmpty else { return }
+        loadLibrary()
+    }
+
+    /// Demo crate metadata when the Music library is empty or nothing is queued yet.
+    private func bootstrapDefaultCratePresentationIfNeeded() {
+        guard player.nowPlayingItem == nil else { return }
+        applyCratePresentation(at: crateActiveIndex)
+        guard tracks.isEmpty else { return }
+        let crate = CrateCatalog.entry(for: crateActiveIndex)
+        let idle = trackTitle == "Not Playing" || artistName == "—"
+        guard idle else { return }
+        trackTitle = crate.title
+        artistName = crate.artist
+        albumTitle = ""
+        duration = 237
+        currentTime = 0
+        isPlaying = false
+        albumArtwork = nil
     }
 
     private func setupPlayerBasics() {

@@ -162,5 +162,5 @@ No `pbxproj` edits needed — project uses synchronized `musicapp/` folder.
 
 - No Sign In / account flow
 - No storyboard dependency
-- No bundled MP4 in v1 — carousel uses SwiftUI looping previews (`OnboardingCardPreviews`)
+- No bundled MP4 — carousel uses static PNGs (`onboarding_s1` … `onboarding_s6` in Assets; see `ONBOARDING_COPY.md`)
 - No noise texture in v1 (optional add later)
