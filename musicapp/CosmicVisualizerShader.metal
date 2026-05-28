@@ -130,7 +130,11 @@ float2 videoVHSWarp(
     float time,
     float bass,
     float mid,
-    float high
+    float high,
+    float hue,
+    float grainAmt,
+    float chroma,
+    float speed
 ) {
     if (width < 1.0 || height < 1.0) {
         return position;
@@ -142,17 +146,73 @@ float2 videoVHSWarp(
     float bassP = clamp(bass, 0.0, 1.0);
     float midP = clamp(mid, 0.0, 1.0);
     float highP = clamp(high, 0.0, 1.0);
+    float speedP = clamp(speed, 0.35, 2.5);
 
     float scanRow = floor(uv.y * height);
-    float wobble = sin(time * 2.6 + scanRow * 0.035) * (0.55 + bassP * 1.2);
+    float wobble = sin(time * 2.6 + scanRow * 0.035 + hue * 6.28) * (0.55 + bassP * 1.2);
     float jitter = sin(time * 10.5 + uv.y * 36.0) * highP * 0.32;
-    float xOff = wobble + jitter;
-    float yOff = sin(time * 0.88 + uv.x * 7.0) * midP * 1.0;
+    float xOff = (wobble + jitter) * (0.55 + chroma * 44.0) * speedP;
+    float yOff = sin(time * 0.88 + uv.x * 7.0 + grainAmt * 4.0) * midP * 1.0 * speedP;
 
-    float zoom = 1.0 + bassP * 0.035;
+    float zoom = 1.0 + bassP * 0.035 * speedP;
     float2 centered = position - size * 0.5;
     float2 warped = centered / zoom + size * 0.5;
     return warped + float2(xOff, yOff);
+}
+
+/// Per-pixel VHS grade — works as colorEffect on video (no layer sampling).
+[[ stitchable ]]
+half4 videoVHSColor(
+    float2 position,
+    half4 color,
+    float width,
+    float height,
+    float time,
+    float bass,
+    float mid,
+    float high,
+    float hue,
+    float grainAmt,
+    float chroma,
+    float satBoost
+) {
+    if (width < 1.0 || height < 1.0) {
+        return color;
+    }
+
+    float2 uv = position / float2(width, height);
+    float2 centered = uv - 0.5;
+    centered.x *= width / height;
+    float dist = length(centered);
+
+    float bassP = clamp(bass, 0.0, 1.0);
+    float highP = clamp(high, 0.0, 1.0);
+
+    float3 col = float3(color.rgb);
+
+    float edge = smoothstep(0.12, 0.58, dist);
+    col.r += edge * chroma * 42.0 * (0.5 + highP);
+    col.b -= edge * chroma * 42.0 * (0.5 + highP);
+
+    float3 tint = hueShift(hue, 0.42, 0.12);
+    col = mix(col, col * (1.0 + tint), 0.18 + bassP * 0.16);
+
+    col = floor(col * 30.0) / 30.0;
+
+    float g = hash21(position + float2(time * 37.7, time * 91.3));
+    float g2 = hash21(position * 1.37 + float2(time * 13.0, 0.0));
+    col += (g - 0.5) * grainAmt * 0.24;
+    col += (g2 - 0.5) * grainAmt * 0.08;
+
+    float scan = 0.93 + 0.07 * sin(uv.y * height * 3.14159);
+    col *= scan;
+    col *= 1.0 - dist * 0.30;
+
+    float luma = dot(col, float3(0.299, 0.587, 0.114));
+    col = mix(float3(luma), col, satBoost);
+
+    col = clamp(col, 0.0, 1.0);
+    return half4(half3(col), color.a);
 }
 
 /// Post-process for bundled visualizer clips — warp, chroma, grain (no procedural rays).

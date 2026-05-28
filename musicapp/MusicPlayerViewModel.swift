@@ -330,6 +330,7 @@ final class MusicPlayerViewModel: ObservableObject {
             startTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
             visualizerVideoController.playRandomClip()
+            visualizerVideoController.syncPlaybackRate(visualizerSpeed)
         } else if !isJogSpinActive {
             stopTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
@@ -1277,6 +1278,7 @@ final class MusicPlayerViewModel: ObservableObject {
 
     func cycleVisualizerChannel() {
         visualizerChannel = visualizerChannel.next()
+        visualizerVideoController.syncPlaybackRate(visualizerSpeed)
         impact(.light)
     }
 
@@ -1284,7 +1286,32 @@ final class MusicPlayerViewModel: ObservableObject {
         guard visualizerChannel != channel else { return }
         visualizerChannel = channel
         visualizerVideoController.playRandomClip()
+        visualizerVideoController.syncPlaybackRate(visualizerSpeed)
         impact(.light)
+    }
+
+    func syncVisualizerVideoPlayback() {
+        visualizerVideoController.syncPlaybackRate(visualizerSpeed)
+    }
+
+    func visualizerVideoNextClip() {
+        visualizerVideoController.playRandomClip()
+        visualizerVideoController.syncPlaybackRate(visualizerSpeed)
+        impact(.medium)
+    }
+
+    func visualizerVideoToggleReverse() {
+        visualizerVideoController.toggleReverse()
+        impact(.rigid)
+    }
+
+    func visualizerVideoScrub(degrees delta: Double, anchor: Double) {
+        let fraction = min(1, max(0, anchor + delta / 360.0))
+        visualizerVideoController.seek(toFraction: fraction)
+    }
+
+    func visualizerVideoScratch(delta: Double, velocity: Double) {
+        visualizerVideoController.scratch(deltaDegrees: delta + velocity * 0.04)
     }
 
     func playDrawerSlideSound() {

@@ -29,4 +29,13 @@ enum VisualizerChannel: String, CaseIterable, Identifiable {
         let i = (all.firstIndex(of: self)! + 1) % all.count
         return all[i]
     }
+
+    var metalParams: (hue: Double, bloom: Double, grain: Double, chroma: Double) {
+        switch self {
+        case .cosmicVHS:   return (0.88, 1.0, 0.42, 0.018)
+        case .nebulaDream: return (0.62, 0.75, 0.28, 0.012)
+        case .crtBloom:    return (0.35, 1.15, 0.35, 0.032)
+        case .deepSpace:   return (0.72, 0.55, 0.48, 0.010)
+        }
+    }
 }

@@ -16,7 +16,15 @@ struct CosmicVHSTelevisionView: View {
             ZStack {
                 Color.black
 
-                VisualizerVideoPlayerView(controller: videoController)
+                VisualizerVideoPlayerView(
+                    channel: channel,
+                    time: time,
+                    bass: bass,
+                    mid: mid,
+                    high: high,
+                    speed: speed,
+                    controller: videoController
+                )
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
 
@@ -76,6 +84,11 @@ struct CosmicVHSTelevisionView: View {
                                     )
                             )
                         Spacer()
+                        if videoController.isReversed {
+                            Text("◀ REV")
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Color.cyan.opacity(0.85))
+                        }
                         Text("● REC")
                             .font(.system(size: 8, weight: .semibold, design: .monospaced))
                             .foregroundStyle(Color(red: 1, green: 0.25, blue: 0.3))

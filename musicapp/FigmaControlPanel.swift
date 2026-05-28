@@ -26,6 +26,7 @@ struct FigmaControlPanel: View {
     @State private var isPageDragging = false
     @State private var pageDrawerSettledOpen = false
     @State private var pageSlideSoundPlayedThisGesture = false
+    @State private var visualScrubAnchor = 0.0
     @State private var metalTime: Double = 0
 
     private let metalTick = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
@@ -427,19 +428,50 @@ struct FigmaControlPanel: View {
     }
 
     private func visualJogWheel(diameter: CGFloat) -> some View {
-        jogWheel(
+        FigmaJogWheel(
             diameter: diameter,
-            innerPressed: $visualInnerPressed,
+            rotation: $vm.cdAngle,
+            isPlaying: vm.isPlaying,
+            isActive: vm.isPlaying,
+            innerPressed: visualInnerPressed,
+            enableHaptics: vm.isHapticEnabled,
             onCenterTap: {
                 visualInnerPressed = true
                 vm.cycleVisualizerChannel()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { visualInnerPressed = false }
             },
+            onSnapForward: {
+                vm.visualizerVideoNextClip()
+            },
+            onSnapBack: {
+                vm.visualizerVideoToggleReverse()
+            },
+            onJiggleSeekForward: {
+                vm.visualizerVideoNextClip()
+            },
+            onJiggleSeekBack: {
+                vm.visualizerVideoToggleReverse()
+            },
             onJiggleDrag: { offset, maxJ in
                 let mag = min(1, hypot(offset.width, offset.height) / max(maxJ, 1))
                 vm.visualizerSpeed = 0.35 + mag * 2.15
+                vm.syncVisualizerVideoPlayback()
                 vm.updateJogDragSpin(translation: offset, maxDeflection: maxJ)
-            }
+            },
+            onJiggleDragEnd: {
+                vm.endJogDragSpin()
+            },
+            onJogBegin: {
+                visualScrubAnchor = vm.visualizerVideoController.scrubFraction
+            },
+            onScrub: { delta in
+                vm.visualizerVideoScrub(degrees: delta, anchor: visualScrubAnchor)
+            },
+            onScrubEnd: { },
+            onScratchDelta: { delta, velocity in
+                vm.visualizerVideoScratch(delta: delta, velocity: velocity)
+            },
+            onScratchEnd: { }
         )
     }
 

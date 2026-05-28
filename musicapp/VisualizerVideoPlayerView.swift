@@ -5,14 +5,23 @@ import SwiftUI
 final class VisualizerVideoController: ObservableObject {
     let player = AVPlayer()
 
+    @Published private(set) var isReversed = false
+
     private var loopObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
+    private var reverseBoundaryObserver: Any?
     private var loadedURL: URL?
+    private var pendingRate: Float = 1
 
     deinit {
         if let loopObserver {
             NotificationCenter.default.removeObserver(loopObserver)
         }
+    }
+
+    var scrubFraction: Double {
+        guard let duration = currentDuration, duration > 0 else { return 0 }
+        return min(1, max(0, player.currentTime().seconds / duration))
     }
 
     func playRandomClip() {
@@ -28,7 +37,7 @@ final class VisualizerVideoController: ObservableObject {
         }
 
         guard loadedURL != url || player.currentItem == nil else {
-            player.play()
+            applyPendingRate()
             return
         }
 
@@ -45,15 +54,65 @@ final class VisualizerVideoController: ObservableObject {
             playRandomClip()
             return
         }
-        if player.rate == 0 {
-            player.play()
+        applyPendingRate()
+    }
+
+    func syncPlaybackRate(_ speed: Double) {
+        let base = Float(max(0.35, min(2.5, speed)))
+        pendingRate = isReversed ? -base : base
+        applyPendingRate()
+    }
+
+    func toggleReverse() {
+        isReversed.toggle()
+        if isReversed {
+            installReverseBoundaryObserverIfNeeded()
+        } else {
+            removeReverseBoundaryObserver()
         }
+        syncPlaybackRate(Double(abs(pendingRate)))
+    }
+
+    func scrub(byFraction delta: Double) {
+        seek(toFraction: scrubFraction + delta)
+    }
+
+    func seek(toFraction fraction: Double) {
+        guard let duration = currentDuration, duration > 0 else { return }
+        let clamped = min(1, max(0, fraction))
+        let seconds = duration * clamped
+        player.seek(
+            to: CMTime(seconds: seconds, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    func seek(bySeconds seconds: Double) {
+        guard let duration = currentDuration else { return }
+        let next = min(duration, max(0, player.currentTime().seconds + seconds))
+        seek(toFraction: next / duration)
+    }
+
+    func scratch(deltaDegrees: Double) {
+        scrub(byFraction: deltaDegrees / 360.0 * 0.18)
+    }
+
+    private var currentDuration: Double? {
+        guard let item = player.currentItem else { return nil }
+        let seconds = item.duration.seconds
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        return seconds
     }
 
     private func load(url: URL) {
         if let loopObserver {
             NotificationCenter.default.removeObserver(loopObserver)
             self.loopObserver = nil
+        }
+        if let reverseBoundaryObserver {
+            player.removeTimeObserver(reverseBoundaryObserver)
+            self.reverseBoundaryObserver = nil
         }
         statusObserver?.invalidate()
         statusObserver = nil
@@ -67,26 +126,69 @@ final class VisualizerVideoController: ObservableObject {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
+            guard let self, !self.isReversed else { return }
             self.player.seek(to: .zero)
-            self.player.play()
+            self.applyPendingRate()
         }
 
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard item.status == .readyToPlay else { return }
             Task { @MainActor in
-                self?.player.play()
+                self?.installReverseBoundaryObserverIfNeeded()
+                self?.applyPendingRate()
             }
         }
 
         player.replaceCurrentItem(with: item)
         player.isMuted = true
-        player.play()
+        applyPendingRate()
+    }
+
+    private func applyPendingRate() {
+        guard player.currentItem != nil else { return }
+        player.rate = pendingRate
+        if pendingRate != 0, player.rate == 0 {
+            player.play()
+            player.rate = pendingRate
+        }
+    }
+
+    private func installReverseBoundaryObserverIfNeeded() {
+        guard isReversed else { return }
+        guard reverseBoundaryObserver == nil else { return }
+        reverseBoundaryObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.08, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            guard let self, self.isReversed else { return }
+            guard time.seconds <= 0.04, let duration = self.currentDuration else { return }
+            self.player.seek(
+                to: CMTime(seconds: max(0, duration - 0.05), preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            ) { _ in
+                self.applyPendingRate()
+            }
+        }
+    }
+
+    private func removeReverseBoundaryObserver() {
+        if let reverseBoundaryObserver {
+            player.removeTimeObserver(reverseBoundaryObserver)
+            self.reverseBoundaryObserver = nil
+        }
     }
 }
 
-/// Looping muted visualizer clip — plain AVPlayerLayer (no SwiftUI shader on video; overlays handle VHS).
+/// Looping muted visualizer clip with channel shader + joystick-driven rate/scrub.
 struct VisualizerVideoPlayerView: View {
+    var channel: VisualizerChannel
+    var time: Double
+    var bass: Double
+    var mid: Double
+    var high: Double
+    var speed: Double
+
     @ObservedObject var controller: VisualizerVideoController
 
     var body: some View {
@@ -95,7 +197,47 @@ struct VisualizerVideoPlayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .visualEffect { content, proxy in
+            content
+                .distortionEffect(
+                    warpShader(size: proxy.size),
+                    maxSampleOffset: CGSize(width: 12, height: 12)
+                )
+                .colorEffect(colorShader(size: proxy.size))
+        }
         .allowsHitTesting(false)
+    }
+
+    private func warpShader(size: CGSize) -> Shader {
+        let p = channel.metalParams
+        return ShaderLibrary.videoVHSWarp(
+            .float(Float(size.width)),
+            .float(Float(size.height)),
+            .float(Float(time)),
+            .float(Float(bass)),
+            .float(Float(mid)),
+            .float(Float(high)),
+            .float(Float(p.hue)),
+            .float(Float(p.grain)),
+            .float(Float(p.chroma)),
+            .float(Float(speed))
+        )
+    }
+
+    private func colorShader(size: CGSize) -> Shader {
+        let p = channel.metalParams
+        return ShaderLibrary.videoVHSColor(
+            .float(Float(size.width)),
+            .float(Float(size.height)),
+            .float(Float(time)),
+            .float(Float(bass)),
+            .float(Float(mid)),
+            .float(Float(high)),
+            .float(Float(p.hue)),
+            .float(Float(p.grain * (0.85 + speed * 0.15))),
+            .float(Float(p.chroma)),
+            .float(Float(1.32))
+        )
     }
 }
 
