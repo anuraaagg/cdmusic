@@ -1,15 +1,19 @@
 import AVFoundation
+import MetalKit
 import SwiftUI
 
 @MainActor
 final class VisualizerVideoController: ObservableObject {
     let player = AVPlayer()
+    let renderer = VisualizerVideoRenderer()
 
     @Published private(set) var isReversed = false
+    @Published private(set) var hasLoadedClip = false
 
     private var loopObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
     private var reverseBoundaryObserver: Any?
+    private var videoOutput: AVPlayerItemVideoOutput?
     private var loadedURL: URL?
     private var pendingRate: Float = 1
 
@@ -26,7 +30,10 @@ final class VisualizerVideoController: ObservableObject {
 
     func playRandomClip() {
         let urls = VisualizerVideoCatalog.allURLs()
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty else {
+            hasLoadedClip = false
+            return
+        }
 
         let url: URL
         if urls.count == 1 {
@@ -42,6 +49,7 @@ final class VisualizerVideoController: ObservableObject {
         }
 
         loadedURL = url
+        hasLoadedClip = false
         load(url: url)
     }
 
@@ -98,6 +106,26 @@ final class VisualizerVideoController: ObservableObject {
         scrub(byFraction: deltaDegrees / 360.0 * 0.18)
     }
 
+    func updateShader(
+        channel: VisualizerChannel,
+        time: Double,
+        bass: Double,
+        mid: Double,
+        high: Double,
+        speed: Double
+    ) {
+        let params = channel.metalParams
+        renderer.uniforms.time = Float(time)
+        renderer.uniforms.bass = Float(bass)
+        renderer.uniforms.mid = Float(mid)
+        renderer.uniforms.high = Float(high)
+        renderer.uniforms.hue = Float(params.hue)
+        renderer.uniforms.grain = Float(params.grain * (0.85 + speed * 0.15))
+        renderer.uniforms.chroma = Float(params.chroma)
+        renderer.uniforms.speed = Float(speed)
+        renderer.uniforms.satBoost = 1.32
+    }
+
     private var currentDuration: Double? {
         guard let item = player.currentItem else { return nil }
         let seconds = item.duration.seconds
@@ -106,21 +134,20 @@ final class VisualizerVideoController: ObservableObject {
     }
 
     private func load(url: URL) {
-        if let loopObserver {
-            NotificationCenter.default.removeObserver(loopObserver)
-            self.loopObserver = nil
-        }
-        if let reverseBoundaryObserver {
-            player.removeTimeObserver(reverseBoundaryObserver)
-            self.reverseBoundaryObserver = nil
-        }
-        statusObserver?.invalidate()
-        statusObserver = nil
+        teardownItemObservers()
 
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
 
         let item = AVPlayerItem(url: url)
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+        ])
+        item.add(output)
+        videoOutput = output
+        renderer.attachVideoOutput(output)
+
         loopObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
@@ -134,6 +161,7 @@ final class VisualizerVideoController: ObservableObject {
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard item.status == .readyToPlay else { return }
             Task { @MainActor in
+                self?.hasLoadedClip = true
                 self?.installReverseBoundaryObserverIfNeeded()
                 self?.applyPendingRate()
             }
@@ -142,6 +170,22 @@ final class VisualizerVideoController: ObservableObject {
         player.replaceCurrentItem(with: item)
         player.isMuted = true
         applyPendingRate()
+    }
+
+    private func teardownItemObservers() {
+        if let loopObserver {
+            NotificationCenter.default.removeObserver(loopObserver)
+            self.loopObserver = nil
+        }
+        removeReverseBoundaryObserver()
+        statusObserver?.invalidate()
+        statusObserver = nil
+
+        if let item = player.currentItem, let videoOutput {
+            item.remove(videoOutput)
+        }
+        renderer.detachVideoOutput()
+        videoOutput = nil
     }
 
     private func applyPendingRate() {
@@ -180,7 +224,7 @@ final class VisualizerVideoController: ObservableObject {
     }
 }
 
-/// Looping muted visualizer clip with channel shader + joystick-driven rate/scrub.
+/// Metal-rendered visualizer clip — AVPlayer decodes off-screen, MTKView draws with VHS shader.
 struct VisualizerVideoPlayerView: View {
     var channel: VisualizerChannel
     var time: Double
@@ -192,123 +236,76 @@ struct VisualizerVideoPlayerView: View {
     @ObservedObject var controller: VisualizerVideoController
 
     var body: some View {
-        VisualizerPlayerLayerView(player: controller.player) {
+        ZStack {
+            VisualizerVideoMetalView(controller: controller)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if !controller.hasLoadedClip {
+                Color.black
+                Text("NO CLIPS")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+        }
+        .background(Color.black)
+        .onAppear {
+            controller.updateShader(
+                channel: channel,
+                time: time,
+                bass: bass,
+                mid: mid,
+                high: high,
+                speed: speed
+            )
             controller.resumeIfNeeded()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
-        .visualEffect { content, proxy in
-            content
-                .distortionEffect(
-                    warpShader(size: proxy.size),
-                    maxSampleOffset: CGSize(width: 12, height: 12)
-                )
-                .colorEffect(colorShader(size: proxy.size))
+        .onChange(of: channel) { _, newChannel in
+            controller.updateShader(
+                channel: newChannel,
+                time: time,
+                bass: bass,
+                mid: mid,
+                high: high,
+                speed: speed
+            )
         }
+        .onChange(of: time) { _, newTime in
+            controller.updateShader(
+                channel: channel,
+                time: newTime,
+                bass: bass,
+                mid: mid,
+                high: high,
+                speed: speed
+            )
+        }
+        .onChange(of: bass) { _, _ in pushShaderUniforms() }
+        .onChange(of: mid) { _, _ in pushShaderUniforms() }
+        .onChange(of: high) { _, _ in pushShaderUniforms() }
+        .onChange(of: speed) { _, _ in pushShaderUniforms() }
         .allowsHitTesting(false)
     }
 
-    private func warpShader(size: CGSize) -> Shader {
-        let p = channel.metalParams
-        return ShaderLibrary.videoVHSWarp(
-            .float(Float(size.width)),
-            .float(Float(size.height)),
-            .float(Float(time)),
-            .float(Float(bass)),
-            .float(Float(mid)),
-            .float(Float(high)),
-            .float(Float(p.hue)),
-            .float(Float(p.grain)),
-            .float(Float(p.chroma)),
-            .float(Float(speed))
-        )
-    }
-
-    private func colorShader(size: CGSize) -> Shader {
-        let p = channel.metalParams
-        return ShaderLibrary.videoVHSColor(
-            .float(Float(size.width)),
-            .float(Float(size.height)),
-            .float(Float(time)),
-            .float(Float(bass)),
-            .float(Float(mid)),
-            .float(Float(high)),
-            .float(Float(p.hue)),
-            .float(Float(p.grain * (0.85 + speed * 0.15))),
-            .float(Float(p.chroma)),
-            .float(Float(1.32))
+    private func pushShaderUniforms() {
+        controller.updateShader(
+            channel: channel,
+            time: time,
+            bass: bass,
+            mid: mid,
+            high: high,
+            speed: speed
         )
     }
 }
 
-private struct VisualizerPlayerLayerView: UIViewRepresentable {
-    let player: AVPlayer
-    let onLayerReady: () -> Void
+private struct VisualizerVideoMetalView: UIViewRepresentable {
+    @ObservedObject var controller: VisualizerVideoController
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onLayerReady: onLayerReady)
-    }
-
-    func makeUIView(context: Context) -> PlayerUIView {
-        let view = PlayerUIView()
-        view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspectFill
-        view.onBoundsReady = { context.coordinator.notifyReady() }
+    func makeUIView(context: Context) -> MTKView {
+        let view = MTKView()
+        controller.renderer.configure(view: view)
         return view
     }
 
-    func updateUIView(_ uiView: PlayerUIView, context: Context) {
-        if uiView.playerLayer.player !== player {
-            uiView.playerLayer.player = player
-        }
-        uiView.playerLayer.videoGravity = .resizeAspectFill
-        uiView.onBoundsReady = { context.coordinator.notifyReady() }
-        uiView.setNeedsLayout()
-    }
-
-    final class Coordinator {
-        private let onLayerReady: () -> Void
-
-        init(onLayerReady: @escaping () -> Void) {
-            self.onLayerReady = onLayerReady
-        }
-
-        func notifyReady() {
-            onLayerReady()
-        }
-    }
-}
-
-private final class PlayerUIView: UIView {
-    override static var layerClass: AnyClass { AVPlayerLayer.self }
-
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-    var onBoundsReady: (() -> Void)?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .black
-        clipsToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer.frame = bounds
-        if bounds.width > 2, bounds.height > 2, window != nil {
-            onBoundsReady?()
-        }
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil {
-            setNeedsLayout()
-            layoutIfNeeded()
-        }
-    }
+    func updateUIView(_ uiView: MTKView, context: Context) { }
 }
