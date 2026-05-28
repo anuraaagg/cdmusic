@@ -329,7 +329,7 @@ final class MusicPlayerViewModel: ObservableObject {
         if isPlaying {
             startTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
-            visualizerVideoController.playRandomClip()
+            visualizerVideoController.resumeIfNeeded()
             visualizerVideoController.syncPlaybackRate(visualizerSpeed)
         } else if !isJogSpinActive {
             stopTimers()
@@ -410,7 +410,6 @@ final class MusicPlayerViewModel: ObservableObject {
     private func observeVolume() {
         InAppPlaybackAudio.activateSession()
         let session = AVAudioSession.sharedInstance()
-        try? session.setActive(true)
         volume = session.outputVolume
         volumeObserver = session.observe(\.outputVolume, options: [.new]) { [weak self] s, _ in
             Task { @MainActor [weak self] in
@@ -1173,9 +1172,6 @@ final class MusicPlayerViewModel: ObservableObject {
                 .sink { [weak self] _ in
                     guard let self else { return }
                     self.currentTime = self.player.currentPlaybackTime
-                    if self.isPlaying {
-                        InAppPlaybackAudio.suppressSystemNowPlaying()
-                    }
                 }
         }
     }

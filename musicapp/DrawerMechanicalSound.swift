@@ -36,7 +36,7 @@ final class DrawerMechanicalSound {
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 0.42
         do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+            InAppPlaybackAudio.prepareForUISounds()
             try engine.start()
             isConfigured = true
         } catch {

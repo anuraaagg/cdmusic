@@ -6,15 +6,22 @@ enum InAppPlaybackAudio {
     /// In-app queue only; does not hijack the Music app / system queue.
     static let player = MPMusicPlayerController.applicationMusicPlayer
 
+    /// Single shared session for music + in-app UI SFX. Never downgrade to `.ambient`.
     static func activateSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            // `.playback` keeps library audio audible; we suppress system Now Playing separately.
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
+            if session.category != .playback {
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            }
+            try session.setActive(true, options: [])
         } catch {
             // Non-fatal — MPMusicPlayerController may still play.
         }
+    }
+
+    /// Call before drawer / UI synth so we never steal the session from library playback.
+    static func prepareForUISounds() {
+        activateSession()
     }
 
     /// Removes metadata from Control Center, lock screen, and Dynamic Island.
@@ -40,7 +47,7 @@ enum InAppPlaybackAudio {
         center.seekBackwardCommand.isEnabled = false
     }
 
-    /// Call after every play/pause/state sync — MPMusicPlayerController may republish metadata.
+    /// Call on play/pause/queue changes — not on every progress tick.
     static func suppressSystemNowPlaying() {
         clearNowPlaying()
         disableSystemRemoteCommands()

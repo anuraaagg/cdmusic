@@ -36,7 +36,7 @@ struct ContentView: View {
             await bootstrap()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
+            if phase == .background {
                 vm?.pauseForBackground()
             }
         }
