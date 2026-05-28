@@ -120,10 +120,10 @@ final class VisualizerVideoController: ObservableObject {
         renderer.uniforms.mid = Float(mid)
         renderer.uniforms.high = Float(high)
         renderer.uniforms.hue = Float(params.hue)
-        renderer.uniforms.grain = Float(params.grain * (0.85 + speed * 0.15))
+        renderer.uniforms.grain = Float(params.grain)
         renderer.uniforms.chroma = Float(params.chroma)
         renderer.uniforms.speed = Float(speed)
-        renderer.uniforms.satBoost = 1.32
+        renderer.uniforms.satBoost = Float(params.saturation)
     }
 
     private var currentDuration: Double? {

@@ -68,6 +68,7 @@ vertex VertexOut visualizerVideoVertex(uint vid [[vertex_id]]) {
     return out;
 }
 
+/// Clean VHS grade — stable picture, subtle fringe + grain (no heavy warp).
 fragment float4 visualizerVideoFragment(
     VertexOut in [[stage_in]],
     texture2d<float> videoTexture [[texture(0)]],
@@ -80,48 +81,38 @@ fragment float4 visualizerVideoFragment(
     float2 uv = aspectFillUV(in.uv, viewAspect, videoAspect);
 
     float bassP = clamp(u.bass, 0.0, 1.0);
-    float midP = clamp(u.mid, 0.0, 1.0);
     float highP = clamp(u.high, 0.0, 1.0);
-    float speedP = clamp(u.speed, 0.35, 2.5);
-
-    float2 size = float2(u.viewWidth, u.viewHeight);
-    float2 px = uv * size;
-
-    float scanRow = floor(uv.y * u.viewHeight);
-    float wobble = sin(u.time * 2.6 + scanRow * 0.035 + u.hue * 6.28) * (0.55 + bassP * 1.2);
-    float jitter = sin(u.time * 10.5 + uv.y * 36.0) * highP * 0.32;
-    float xOff = (wobble + jitter) * (0.55 + u.chroma * 44.0) * speedP;
-    float yOff = sin(u.time * 0.88 + uv.x * 7.0 + u.grain * 4.0) * midP * speedP;
-
-    float zoom = 1.0 + bassP * 0.035 * speedP;
-    float2 centeredPx = px - size * 0.5;
-    float2 warpedPx = centeredPx / zoom + size * 0.5 + float2(xOff, yOff);
-    float2 warpedUV = warpedPx / size;
 
     float2 centered = uv - 0.5;
     centered.x *= viewAspect;
     float dist = length(centered);
 
-    float chromaPx = u.chroma * u.viewWidth * (1.0 + highP * 2.2);
-    float2 chromaOffset = float2(chromaPx, 0.0) / size;
+    // Occasional tracking-line shimmer — sub-pixel, not full-frame morph.
+    float trackY = fract(u.time * 0.11);
+    float nearTrack = exp(-abs(uv.y - trackY) * 28.0);
+    float2 sampleUV = uv;
+    sampleUV.x += nearTrack * sin(u.time * 9.0 + uv.y * 40.0) * 0.00035 * (0.4 + bassP * 0.6);
 
-    float3 center = videoTexture.sample(texSampler, warpedUV).rgb;
-    float r = videoTexture.sample(texSampler, warpedUV + chromaOffset).r;
-    float b = videoTexture.sample(texSampler, warpedUV - chromaOffset).b;
+    // Edge-weighted chromatic fringe (1–2 px feel), not global split.
+    float edge = smoothstep(0.28, 0.82, dist);
+    float2 chromaOffset = float2(u.chroma * edge * (0.55 + highP * 0.45), 0.0);
+
+    float3 center = videoTexture.sample(texSampler, sampleUV).rgb;
+    float r = videoTexture.sample(texSampler, sampleUV + chromaOffset).r;
+    float b = videoTexture.sample(texSampler, sampleUV - chromaOffset).b;
     float3 col = float3(r, center.g, b);
 
-    float3 tint = hueShift(u.hue, 0.42, 0.12);
-    col = mix(col, col * (1.0 + tint), 0.18 + bassP * 0.16);
-    col = floor(col * 30.0) / 30.0;
+    // Gentle channel tint — color grade, not a second image.
+    float3 tint = hueShift(u.hue, 0.22, 0.05);
+    col = mix(col, col + tint * 0.06, 0.10 + bassP * 0.06);
 
-    float g = hash21(px + float2(u.time * 37.7, u.time * 91.3));
-    float g2 = hash21(px * 1.37 + float2(u.time * 13.0, 0.0));
-    col += (g - 0.5) * u.grain * 0.24;
-    col += (g2 - 0.5) * u.grain * 0.08;
+    // Fine film grain (shader only — keep overlays light).
+    float2 px = uv * float2(u.viewWidth, u.viewHeight);
+    float g = hash21(px + float2(u.time * 19.0, u.time * 7.0));
+    col += (g - 0.5) * u.grain * 0.09;
 
-    float scan = 0.93 + 0.07 * sin(uv.y * u.viewHeight * 3.14159);
-    col *= scan;
-    col *= 1.0 - dist * 0.30;
+    // Soft tube falloff.
+    col *= 1.0 - dist * 0.16;
 
     float luma = dot(col, float3(0.299, 0.587, 0.114));
     col = mix(float3(luma), col, u.satBoost);

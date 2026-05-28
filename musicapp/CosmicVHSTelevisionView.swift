@@ -29,10 +29,10 @@ struct CosmicVHSTelevisionView: View {
                     .clipped()
 
                 // Phosphor scanlines
-                ScanlineOverlay(spacing: 3, opacity: 0.14)
+                ScanlineOverlay(spacing: 3, opacity: 0.09)
 
                 // Extra film grain on the glass
-                FilmGrainOverlay(time: time, opacity: 0.11 + bass * 0.06)
+                FilmGrainOverlay(time: time, opacity: 0.05 + bass * 0.03)
 
                 // CRT vignette + tube curvature feel
                 RadialGradient(
