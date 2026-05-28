@@ -36,6 +36,16 @@ struct T3SettingsSheet: View {
                     Spacer()
                 }
 
+                HStack {
+                    Spacer()
+                    T3Button(label: "GENRE ARCADE", style: .blackNum) {
+                        vm.showSettings = false
+                        vm.showArcadeGame = true
+                        vm.impact(.medium)
+                    }
+                    Spacer()
+                }
+
                 #if DEBUG
                 HStack {
                     Spacer()

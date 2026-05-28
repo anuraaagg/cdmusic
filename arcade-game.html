@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Genre Drop Arcade</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  min-height: 100%;
+  background: #D4D0CA;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: Helvetica, Arial, sans-serif;
+  color: #333;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding: 24px 16px;
+}
+
+h1 {
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  font-weight: 600;
+  color: rgba(0,0,0,0.45);
+  margin-bottom: 18px;
+}
+
+#cabinet {
+  position: relative;
+  width: min(958px, 100%);
+  aspect-ratio: 479 / 195;
+  filter: drop-shadow(0 18px 40px rgba(0,0,0,0.28));
+}
+
+#cabinet img.layer {
+  position: absolute;
+  pointer-events: none;
+}
+
+#cabinet .interactive {
+  position: absolute;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+#cabinet .interactive:disabled {
+  cursor: default;
+}
+
+.genre-hit {
+  left: 2.5%;
+  width: 18%;
+  height: 11%;
+}
+
+.genre-hit[data-genre="hiphop"] { top: 8%; }
+.genre-hit[data-genre="disco"]  { top: 18%; }
+.genre-hit[data-genre="techno"] { top: 27%; }
+
+#insert-coin {
+  left: 68%;
+  top: 32%;
+  width: 10%;
+  height: 16%;
+  font: 12px/1.15 Helvetica, Arial, sans-serif;
+  color: #BCC1C4;
+  text-align: center;
+  white-space: pre-line;
+}
+
+#btn-a, #btn-b {
+  width: 6.7%;
+  height: 16.4%;
+  top: 74%;
+  border-radius: 50%;
+  color: #BCC1C4;
+  font-size: clamp(14px, 3vw, 24px);
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.98);
+}
+
+#btn-a { left: 82%; }
+#btn-b { left: 89.8%; }
+
+#btn-star {
+  left: 3.3%;
+  top: 77.4%;
+  width: 4.6%;
+  height: 11.3%;
+}
+
+#vinyl {
+  left: 45.3%;
+  top: 48.2%;
+  width: 9.2%;
+  height: 22.6%;
+  transform-origin: center center;
+}
+
+#eq {
+  left: 19.6%;
+  top: 45.6%;
+  width: 6.3%;
+  height: 40%;
+  transform-origin: bottom center;
+}
+
+#target-label {
+  position: absolute;
+  left: 35.3%;
+  top: 16.4%;
+  width: 29%;
+  text-align: center;
+  font-size: clamp(16px, 3.2vw, 22px);
+  color: #BCC1C4;
+  pointer-events: none;
+}
+
+#timer-bar {
+  position: absolute;
+  left: 35.3%;
+  top: 77%;
+  height: 2.6%;
+  background: rgba(0,0,0,0.95);
+  border-radius: 99px;
+  width: 29%;
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+.genre-text {
+  position: absolute;
+  left: 3.3%;
+  font-size: clamp(12px, 2.2vw, 16px);
+  pointer-events: none;
+  transition: transform 0.15s, color 0.15s;
+}
+
+.genre-text.active {
+  color: #000;
+  font-weight: 700;
+  transform: scale(1.08);
+}
+
+.genre-text[data-genre="hiphop"] { top: 10.8%; color: #000; }
+.genre-text[data-genre="disco"]  { top: 20%; color: #AFB4B7; }
+.genre-text[data-genre="techno"] { top: 29.2%; color: #AFB4B7; }
+
+#score-digits {
+  position: absolute;
+  left: 74.7%;
+  top: 11.8%;
+  display: flex;
+  gap: 2px;
+  height: 14.9%;
+}
+
+#score-digits img { height: 100%; width: auto; }
+
+#lives {
+  position: absolute;
+  left: 8.6%;
+  top: 77.4%;
+  display: flex;
+  gap: 4px;
+  height: 11.3%;
+}
+
+#lives img { height: 100%; width: auto; }
+#lives img.off { opacity: 0.15; }
+
+#hint {
+  margin-top: 20px;
+  max-width: 520px;
+  text-align: center;
+  font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgba(0,0,0,0.5);
+}
+
+.flash { animation: flash 0.55s step-end infinite alternate; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0.35; } }
+
+.shake { animation: shake 0.35s ease; }
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+</style>
+</head>
+<body>
+<h1>GENRE DROP ARCADE</h1>
+
+<div id="cabinet">
+  <img class="layer" src="arcade-game/assets/arcade_display_full.png" alt="" width="100%" height="100%" style="inset:0;width:100%;height:100%;object-fit:fill;">
+
+  <div id="target-label">ARCADE</div>
+
+  <div class="genre-text" data-genre="hiphop">HIP-HOP</div>
+  <div class="genre-text" data-genre="disco">DISCO</div>
+  <div class="genre-text" data-genre="techno">TECHNO</div>
+
+  <img id="vinyl" class="layer" src="arcade-game/assets/arcade_vinyl_grid.svg" alt="">
+  <img id="eq" class="layer" src="arcade-game/assets/arcade_equalizer.svg" alt="">
+
+  <div id="timer-bar" hidden></div>
+
+  <div id="score-digits"></div>
+  <div id="lives"></div>
+
+  <button class="interactive genre-hit" data-genre="hiphop" aria-label="HIP-HOP"></button>
+  <button class="interactive genre-hit" data-genre="disco" aria-label="DISCO"></button>
+  <button class="interactive genre-hit" data-genre="techno" aria-label="TECHNO"></button>
+
+  <button id="insert-coin" class="interactive flash">INSERT&#10;COIN</button>
+  <button id="btn-a" class="interactive" disabled>A</button>
+  <button id="btn-b" class="interactive" disabled>B</button>
+  <button id="btn-star" class="interactive" aria-label="Bonus coin"><img src="arcade-game/assets/arcade_btn_star.svg" width="100%" alt=""></button>
+</div>
+
+<p id="hint">Tap INSERT COIN to play. Match the lit genre before the needle drops.</p>
+
+<script>
+const GENRES = ['hiphop', 'disco', 'techno'];
+const LABELS = { hiphop: 'HIP-HOP', disco: 'DISCO', techno: 'TECHNO' };
+const DIGITS = {
+  '0': 'arcade_digit_4.svg', '1': 'arcade_digit_1.svg', '2': 'arcade_digit_2.svg',
+  '3': 'arcade_digit_3.svg', '4': 'arcade_digit_4.svg', '5': 'arcade_digit_4.svg',
+  '6': 'arcade_digit_4.svg', '7': 'arcade_digit_4.svg', '8': 'arcade_digit_4.svg', '9': 'arcade_digit_4.svg'
+};
+
+let phase = 'attract';
+let score = 0, lives = 3, coins = 3, combo = 0, target = 'disco';
+let timeLeft = 3, spin = 0, eq = 0, last = performance.now();
+
+const cabinet = document.getElementById('cabinet');
+const targetLabel = document.getElementById('target-label');
+const timerBar = document.getElementById('timer-bar');
+const scoreDigits = document.getElementById('score-digits');
+const livesEl = document.getElementById('lives');
+const hint = document.getElementById('hint');
+const vinyl = document.getElementById('vinyl');
+const eqEl = document.getElementById('eq');
+const insertCoin = document.getElementById('insert-coin');
+const btnA = document.getElementById('btn-a');
+const btnB = document.getElementById('btn-b');
+
+function maxTime() { return Math.max(1.1, 3 - score * 0.08); }
+
+function renderScore() {
+  scoreDigits.innerHTML = String(Math.min(9999, Math.max(0, score))).padStart(4, '0')
+    .split('').map(d => `<img src="arcade-game/assets/${DIGITS[d]}" alt="${d}">`).join('');
+}
+
+function renderLives() {
+  livesEl.innerHTML = [0,1,2].map(i =>
+    `<img src="arcade-game/assets/arcade_btn_heart.svg" class="${i < lives ? '' : 'off'}" alt="">`
+  ).join('');
+}
+
+function setPhase(p) {
+  phase = p;
+  const playing = p === 'playing';
+  document.querySelectorAll('.genre-hit').forEach(b => b.disabled = !playing);
+  btnA.disabled = btnB.disabled = !playing;
+  timerBar.hidden = !playing;
+  insertCoin.classList.toggle('flash', p === 'attract' || p === 'gameover');
+  insertCoin.style.opacity = playing ? '0.35' : '1';
+  targetLabel.textContent = playing ? 'MATCH!' : 'ARCADE';
+  hint.textContent = {
+    attract: 'Tap INSERT COIN to play. Match the lit genre before the needle drops.',
+    playing: 'Click the highlighted genre. A = hint (−5 pts) · B = skip (−3 pts) · ★ = +1 coin',
+    gameover: 'Game over — tap INSERT COIN to try again.'
+  }[p];
+}
+
+function highlightTarget() {
+  document.querySelectorAll('.genre-text').forEach(el => {
+    el.classList.toggle('active', phase === 'playing' && el.dataset.genre === target);
+    if (phase !== 'playing') {
+      el.style.color = el.dataset.genre === 'hiphop' ? '#000' : '#AFB4B7';
+    }
+  });
+}
+
+function nextRound() {
+  target = GENRES[Math.floor(Math.random() * GENRES.length)];
+  timeLeft = maxTime();
+  highlightTarget();
+}
+
+function startGame() {
+  if (phase === 'playing') return;
+  if (phase !== 'gameover' && coins <= 0) return;
+  if (phase !== 'gameover') coins--;
+  if (phase === 'gameover') score = 0;
+  lives = 3; combo = 0;
+  renderLives(); renderScore();
+  setPhase('playing');
+  nextRound();
+}
+
+function wrong() {
+  lives--; combo = 0;
+  renderLives();
+  cabinet.classList.remove('shake');
+  void cabinet.offsetWidth;
+  cabinet.classList.add('shake');
+  if (lives <= 0) setPhase('gameover');
+  else nextRound();
+}
+
+function pick(genre) {
+  if (phase !== 'playing') return;
+  if (genre === target) {
+    combo++;
+    score += 10 + combo * 2;
+    renderScore();
+    nextRound();
+  } else wrong();
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  spin += (0.6 + score * 0.04) * dt * 60;
+  eq += 0.12;
+  vinyl.style.transform = `rotate(${spin}deg)`;
+  eqEl.style.transform = `scaleY(${0.85 + Math.sin(eq) * 0.15})`;
+
+  if (phase === 'playing') {
+    timeLeft -= dt;
+    timerBar.style.transform = `scaleX(${Math.max(0, timeLeft / maxTime())})`;
+    if (timeLeft <= 0) wrong();
+  }
+  requestAnimationFrame(loop);
+}
+
+insertCoin.addEventListener('click', startGame);
+btnA.addEventListener('click', () => { if (phase === 'playing' && score >= 5) { score -= 5; timeLeft = Math.min(timeLeft + 0.8, maxTime()); renderScore(); }});
+btnB.addEventListener('click', () => { if (phase === 'playing') { score = Math.max(0, score - 3); renderScore(); nextRound(); }});
+document.getElementById('btn-star').addEventListener('click', () => { if (coins < 9) coins++; });
+
+document.querySelectorAll('.genre-hit').forEach(btn =>
+  btn.addEventListener('click', () => pick(btn.dataset.genre))
+);
+
+renderScore();
+renderLives();
+setPhase('attract');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

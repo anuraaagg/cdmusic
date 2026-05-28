@@ -7,6 +7,8 @@ enum FigmaTheme {
     static let jamCapFill = Color(red: 213 / 255, green: 215 / 255, blue: 214 / 255) // #d5d7d6 Left-JAM (305:3385)
     static let jamCapTextMuted = Color(red: 219 / 255, green: 221 / 255, blue: 218 / 255) // #dbddda
     static let panelGrey = Color(red: 215 / 255, green: 217 / 255, blue: 217 / 255) // #d7d9d9
+    /// Figma `465:10794` visual screen shell — warm cream panel fill.
+    static let visualPanelCream = Color(red: 198 / 255, green: 190 / 255, blue: 172 / 255) // #c6beac
     static let crateInner = Color(red: 244 / 255, green: 244 / 255, blue: 244 / 255) // #f4f4f4
     static let hairlineBorder = Color(red: 34 / 255, green: 34 / 255, blue: 32 / 255) // ~#222220
     static let textDark = Color(red: 13 / 255, green: 12 / 255, blue: 10 / 255) // #0d0c0a
@@ -158,8 +160,8 @@ enum FigmaTheme {
 
     /// Figma node `332:4641` — full open control sheet @402pt wide.
     static let panelCornerRadius: CGFloat = 40
-    /// Full expanded panel: collapsed chrome + gap + cream interior (332 pt @ 132 knob).
-    static let panelExpandedH: CGFloat = 464
+    /// Full expanded panel @402 — Figma `467:11378` / `465:10794` (**452** pt).
+    static let panelExpandedH: CGFloat = 452
     /// Gap between chrome block and cream (`332:4641` root `gap-[8px]`).
     static let sheetBlockGap: CGFloat = 8
     /// Padding from groove block to JAM row (`332:4643` — after pull-tab removal).
@@ -180,17 +182,17 @@ enum FigmaTheme {
     static let creamPanelBottomPadding: CGFloat = 31
     /// `332:4661` `gap-[32px]` between transport row and PREV/NEXT grid.
     static let creamPanelSectionGap: CGFloat = 32
-    /// Bare cream interior without flex slack: 31 + 132 + 32 + 106 + 31.
+    /// Bare cream interior without flex slack: 120 + 32 + 106.
     static var creamPanelBareHeight: CGFloat {
-        creamPanelTopPadding + transportRowHeight + creamPanelSectionGap + buttonGridHeight + creamPanelBottomPadding
+        transportRowHeight + creamPanelSectionGap + buttonGridHeight
     }
     /// Compact-tier cream minimum (132 transport + 14 gap + 106 grid + 8 bottom).
     static let creamPanelCompactBareHeight: CGFloat = transportRowHeight + 14 + buttonGridHeight + 8
     static var creamPanelContentHeight: CGFloat { creamPanelBareHeight }
 
-    /// Jog wheel platter — SVG `337:5621` / `332:4666` (**132 × 132** pt).
-    static let transportRowHeight: CGFloat = 132
-    static let jogWheelDiameter: CGFloat = 132
+    /// Jog wheel platter — SVG `337:5621` / `332:4666` (**120 × 120** pt @ Figma `467:11378`).
+    static let transportRowHeight: CGFloat = 120
+    static let jogWheelDiameter: CGFloat = 120
     /// Square PLAY/PAUSE column (`310:3476`) — 54.34 × 119.321 pt.
     static let playPauseColumnWidth: CGFloat = 54.34
     static let playPauseGap: CGFloat = FigmaSquareButton.columnGap         // 11.321
@@ -199,6 +201,23 @@ enum FigmaTheme {
     /// Half-button grid (`305:3416`): 48 + 10 + 48.
     static let buttonGridRowGap: CGFloat = 10
     static let buttonGridHeight: CGFloat = 106
+
+    /// Figma `465:10811` / `469:11569` — display → transport on visual cream panel.
+    static let visualDisplayTransportGap: CGFloat = 34
+    /// Tighter gap when cream slot is compact — pins transport lower, gives display more height.
+    static let visualDisplayTransportGapTight: CGFloat = 10
+    static let visualCreamTopPadding: CGFloat = 8
+    static let visualCreamBottomPadding: CGFloat = 4
+    /// Figma `465:11203` / `465:11197` — side pods + visual jog (**120 × 120** pt).
+    static let visualPodSize: CGFloat = 120
+    /// Drop-shadow bleed below the platter @120 pt (`332:4666` filter offset + radius).
+    static var jogShadowBleed: CGFloat { visualPodSize * 0.172 }
+    static let sidePodPadding: CGFloat = 17.143
+    static let sidePodCorner: CGFloat = 13.714
+    static let sidePodInner: CGFloat = 85.714
+
+    /// Cream content width @402 reference (`402 − 2×20` padding).
+    static var creamContentWidth: CGFloat { designWidth - creamPanelHPadding * 2 }
 
     /// Figma `301:2340` — library bottom sheet.
     enum Library {

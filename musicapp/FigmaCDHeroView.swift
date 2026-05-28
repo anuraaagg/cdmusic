@@ -200,7 +200,12 @@ struct FigmaCDJewelCase: View {
                 .frame(width: Self.side, height: Self.side)
                 .allowsHitTesting(false)
 
-            JewelCaseGyroShineOverlay(focalPoint: caseShineMotion.focalPoint, size: Self.side)
+            JewelCaseGyroShineOverlay(
+                focalPoint: caseShineMotion.focalPoint,
+                size: Self.side,
+                tiltAmount: caseShineMotion.tiltAmount,
+                palette: vm.heroCaseShinePalette
+            )
                 .mask { caseTrayMask }
                 .allowsHitTesting(false)
 

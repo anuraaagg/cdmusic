@@ -116,8 +116,13 @@ final class MusicPlayerViewModel: ObservableObject {
 
     /// 0 = JAM strip only (CRATES visible); 1 = full control card (CRATES hidden behind panel).
     @Published var controlPanelRevealFraction: CGFloat = 1
+    /// 0 = visualizer slot revealed (panel slid left); 1 = panel covers visualizer.
+    @Published var visualizerRevealFraction: CGFloat = 1
+
+    let audioAnalyzer = PlaybackReactiveAnalyzer()
     /// Tinted disc graphic for CD hero when library artwork is unavailable.
-    @Published var heroDiscPlaceholder: UIImage? = UIImageFigma.tintedDisc(CrateCatalog.entry(for: 2).accentUIKit())
+    @Published var heroDiscPlaceholder: UIImage?
+    @Published private(set) var heroCaseShinePalette: JewelCaseShinePalette = .rainbow
 
     @Published var figmaLayoutScale: CGFloat = 1
 
@@ -127,6 +132,7 @@ final class MusicPlayerViewModel: ObservableObject {
     // UI sheets
     @Published var showSettings = false
     @Published var showLibrary  = false
+    @Published var showArcadeGame = false
     @Published var showSavedCrate = false
     @Published var savedCrateViewMode: SavedCrateViewMode = .web
 
@@ -139,6 +145,10 @@ final class MusicPlayerViewModel: ObservableObject {
 
     // Settings
     @Published var selectedSkin:         CDSkin = .normal
+    /// Active cosmic visualizer preset — maps to arcade genre labels on `465:10827`.
+    @Published var visualizerChannel:    VisualizerChannel = .cosmicVHS
+    @Published var visualizerSpeed:      Double = 1.0
+    let visualizerVideoController = VisualizerVideoController()
     @Published var isHapticEnabled:      Bool   = true
     @Published var isSoundEnabled:       Bool   = true
 
@@ -164,6 +174,8 @@ final class MusicPlayerViewModel: ObservableObject {
     /// Guards against MPMusicPlayer briefly reporting `.paused` right after `play()`.
     private var userRequestedPlayback = false
     private var storeCancellable: AnyCancellable?
+    private var analyzerCancellable: AnyCancellable?
+    private var shinePaletteGeneration = 0
 
     private enum PlaybackStore {
         static let lastPersistentID = "figma.lastTrackPersistentID"
@@ -175,6 +187,9 @@ final class MusicPlayerViewModel: ObservableObject {
     init() {
         selectedSkin = CrateCatalog.entry(for: crateActiveIndex).skin
         storeCancellable = savedCrateStore.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        analyzerCancellable = audioAnalyzer.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         requestAuthAndSetup()
@@ -200,6 +215,7 @@ final class MusicPlayerViewModel: ObservableObject {
         refreshLibraryIfAuthorized()
         bootstrapDefaultCratePresentationIfNeeded()
         showControlCentre(animated: false)
+        dismissDisplayScreen(animated: false)
     }
 
     private func refreshLibraryIfAuthorized() {
@@ -252,13 +268,17 @@ final class MusicPlayerViewModel: ObservableObject {
     private func syncNowPlaying() {
         guard let item = player.nowPlayingItem else {
             trackTitle = "Not Playing"; artistName = "—"
-            albumTitle = ""; albumArtwork = nil; duration = 1; return
+            albumTitle = ""; albumArtwork = nil; duration = 1
+            refreshHeroCaseShinePalette()
+            return
         }
         trackTitle   = item.title        ?? "Unknown"
         artistName   = item.artist       ?? "Unknown Artist"
         albumTitle   = item.albumTitle   ?? ""
         duration     = max(1, item.playbackDuration)
         albumArtwork = item.artwork?.image(at: CGSize(width: 300, height: 300))
+        seedAudioAnalyzerIfNeeded()
+        refreshHeroCaseShinePalette()
         syncCrateActiveIndex(for: item)
         persistPlaybackState()
     }
@@ -309,9 +329,11 @@ final class MusicPlayerViewModel: ObservableObject {
         if isPlaying {
             startTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
+            visualizerVideoController.playRandomClip()
         } else if !isJogSpinActive {
             stopTimers()
             InAppPlaybackAudio.suppressSystemNowPlaying()
+            visualizerVideoController.pause()
         }
         persistPlaybackState()
     }
@@ -322,9 +344,15 @@ final class MusicPlayerViewModel: ObservableObject {
             tracks = []
             return
         }
-        tracks = MPMediaQuery.songs().items ?? []
-        albumArtwork = crateArtwork(for: crateActiveIndex) ?? albumArtwork
-        restoreLastPlayback()
+        Task {
+            let items = await Task.detached(priority: .userInitiated) {
+                MPMediaQuery.songs().items ?? []
+            }.value
+            tracks = items
+            albumArtwork = crateArtwork(for: crateActiveIndex) ?? albumArtwork
+            refreshHeroCaseShinePalette()
+            restoreLastPlayback()
+        }
     }
 
     private func persistPlaybackState() {
@@ -817,6 +845,7 @@ final class MusicPlayerViewModel: ObservableObject {
         trackTitle = moment.title
         artistName = moment.artist
         albumArtwork = moment.artworkImage
+        refreshHeroCaseShinePalette()
         albumTitle = ""
         duration = 237
         currentTime = 0
@@ -972,6 +1001,40 @@ final class MusicPlayerViewModel: ObservableObject {
         }
     }
 
+    /// Slides the arcade TV screen in from the right (JAM arrow).
+    func showDisplayScreen(animated: Bool = true) {
+        guard visualizerRevealFraction > 0.001 else { return }
+        if animated {
+            let v = visualizerRevealFraction * 4.5
+            withAnimation(VisualizerDrawerPhysics.panelSlideAnimation(initialVelocity: v)) {
+                visualizerRevealFraction = 0
+            }
+            playDrawerSlideSound()
+        } else {
+            visualizerRevealFraction = 0
+        }
+    }
+
+    func dismissDisplayScreen(animated: Bool = true) {
+        guard visualizerRevealFraction < 0.999 else { return }
+        if animated {
+            let v = (1 - visualizerRevealFraction) * 4.5
+            withAnimation(VisualizerDrawerPhysics.panelSlideAnimation(initialVelocity: v)) {
+                visualizerRevealFraction = 1
+            }
+            playDrawerLatchSound()
+        } else {
+            visualizerRevealFraction = 1
+        }
+    }
+
+    /// G4 meter needle — tempo/speed + bass envelope.
+    var g4MeterNeedleAngle: Double {
+        let speedNorm = (visualizerSpeed - 0.35) / 2.15
+        let bassNorm = audioAnalyzer.bass
+        return -42 + (speedNorm * 52 + bassNorm * 38)
+    }
+
     func collapseControlPanelToJam() {
         showControlCentre()
     }
@@ -998,6 +1061,7 @@ final class MusicPlayerViewModel: ObservableObject {
         currentTime = 0
         isPlaying = true
         albumArtwork = nil
+        seedAudioAnalyzerIfNeeded()
         startTimers()
     }
 
@@ -1008,9 +1072,57 @@ final class MusicPlayerViewModel: ObservableObject {
         applySkin(crate.skin)
         heroDiscPlaceholder = UIImageFigma.tintedDisc(crate.accentUIKit())
         albumArtwork = crateArtwork(for: index)
+        refreshHeroCaseShinePalette()
+    }
+
+    private func refreshHeroCaseShinePalette() {
+        shinePaletteGeneration += 1
+        let generation = shinePaletteGeneration
+
+        if albumArtwork == nil, let accentHex = currentCrateEntry?.accentHex {
+            heroCaseShinePalette = JewelCaseShinePalette.fromAccentHex(accentHex)
+            return
+        }
+
+        guard let image = effectiveHeroUIImage else {
+            heroCaseShinePalette = .rainbow
+            return
+        }
+
+        let cacheKey = shinePaletteCacheKey(for: image)
+
+        Task {
+            if let cached = await JewelCaseShinePaletteResolver.shared.cachedPalette(for: cacheKey) {
+                applyShinePalette(cached, generation: generation)
+                return
+            }
+
+            let palette = await JewelCaseShinePaletteResolver.shared.palette(for: cacheKey, image: image)
+            applyShinePalette(palette, generation: generation)
+        }
+    }
+
+    @MainActor
+    private func applyShinePalette(_ palette: JewelCaseShinePalette, generation: Int) {
+        guard generation == shinePaletteGeneration else { return }
+        heroCaseShinePalette = palette
+    }
+
+    private func shinePaletteCacheKey(for image: UIImage) -> UInt64 {
+        if let item = player.nowPlayingItem {
+            return item.persistentID
+        }
+        if crateActiveIndex >= 0, crateActiveIndex < tracks.count {
+            return tracks[crateActiveIndex].persistentID
+        }
+        return JewelCaseShinePalette.fingerprint(of: image)
     }
 
     // MARK: - Animation timers
+
+    private func seedAudioAnalyzerIfNeeded() {
+        audioAnalyzer.setSeed(from: trackTitle)
+    }
 
     private func startTimers() {
         if animTimer == nil {
@@ -1018,6 +1130,11 @@ final class MusicPlayerViewModel: ObservableObject {
                 .autoconnect()
                 .sink { [weak self] _ in
                     guard let self else { return }
+                    self.audioAnalyzer.tick(
+                        isPlaying: self.isPlaying,
+                        speed: self.visualizerSpeed,
+                        dt: 1.0 / 60.0
+                    )
                     guard !self.isScratching else { return }
 
                     let jogBursting = self.jogBurstUntil.map { Date() < $0 } ?? false
@@ -1136,7 +1253,18 @@ final class MusicPlayerViewModel: ObservableObject {
     }
 
     /// JAM strip crossfade: track metadata when closed, CRATES + count as the drawer opens.
-    func jamToolbarForDrawer(revealFraction: CGFloat) -> (status: String, counter: String) {
+    func jamToolbarForDrawer(
+        revealFraction: CGFloat,
+        visualizerReveal: CGFloat? = nil
+    ) -> (status: String, counter: String) {
+        let vizOpen = max(0, min(1, 1 - (visualizerReveal ?? visualizerRevealFraction)))
+        if vizOpen > 0.38 {
+            return (visualizerChannel.displayLabel.lowercased(), jamRangeCaption)
+        }
+        if vizOpen > 0.12 {
+            return (vizOpen > 0.26 ? visualizerChannel.displayLabel.lowercased() : jamStatusLine, jamRangeCaption)
+        }
+
         let openAmount = max(0, min(1, 1 - revealFraction))
         if openAmount < 0.12 {
             return (jamStatusLine, jamRangeCaption)
@@ -1145,6 +1273,18 @@ final class MusicPlayerViewModel: ObservableObject {
             return ("crates", jamCratesCaption)
         }
         return openAmount > 0.26 ? ("crates", jamCratesCaption) : (jamStatusLine, jamRangeCaption)
+    }
+
+    func cycleVisualizerChannel() {
+        visualizerChannel = visualizerChannel.next()
+        impact(.light)
+    }
+
+    func selectVisualizerChannel(_ channel: VisualizerChannel) {
+        guard visualizerChannel != channel else { return }
+        visualizerChannel = channel
+        visualizerVideoController.playRandomClip()
+        impact(.light)
     }
 
     func playDrawerSlideSound() {

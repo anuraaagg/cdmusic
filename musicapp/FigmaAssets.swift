@@ -26,6 +26,12 @@ enum FigmaImage {
     static let dialCenter = "dial_center"
     static let jamLeftRail = "jam_left_rail"
     static let jamArrowRight = "jam_arrow_right"
+    /// Back / forward rail shell — Figma `465:10794`; arrow drawn in code on top.
+    static let jamBackRail = "jam_back_rail"
+    /// D7 speaker vent — Figma `465:11203` (4× PNG → 120 pt).
+    static let d7VentGrille = "d7_vent_grille"
+    /// G4 meter pod shell — Figma `465:11197` (4× PNG → 120 pt).
+    static let g4MeterDial = "g4_meter_dial"
     static let knobOuter = "knob_outer"
     static let knobShadowCore = "knob_shadow_core"
     static let knobTactile = "knob_tactile"

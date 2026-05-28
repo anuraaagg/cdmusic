@@ -62,6 +62,7 @@ struct FigmaPlayerScreen: View {
             FigmaControlPanel(
                 vm: vm,
                 revealFraction: $vm.controlPanelRevealFraction,
+                displayRevealFraction: $vm.visualizerRevealFraction,
                 expandedHeight: layout.expandedPanelHeight,
                 maxSlideDistance: layout.maxPanelSlide,
                 slideOffset: slideY,

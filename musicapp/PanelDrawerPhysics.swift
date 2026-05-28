@@ -96,3 +96,36 @@ enum CaseTrayPhysics {
 
     static let snapAnimation: Animation = .easeOut(duration: 0.28)
 }
+
+// MARK: - Horizontal visualizer drawer (`465:10808` arrow swipe)
+
+enum VisualizerDrawerPhysics {
+    static let commitThreshold: CGFloat = PanelDrawerPhysics.commitThreshold
+    static let openOvershootLimit: CGFloat = PanelDrawerPhysics.openOvershootLimit
+    static let closeOvershootLimit: CGFloat = PanelDrawerPhysics.closeOvershootLimit
+
+    static func resistedDragFraction(anchor: CGFloat, delta: CGFloat) -> CGFloat {
+        PanelDrawerPhysics.resistedDragFraction(anchor: anchor, delta: delta)
+    }
+
+    /// `flickPixels` — predicted − actual horizontal translation (+ = leftward).
+    static func settleTarget(
+        revealFraction: CGFloat,
+        flickPixels: CGFloat,
+        maxSlide: CGFloat
+    ) -> (target: CGFloat, initialVelocity: CGFloat) {
+        PanelDrawerPhysics.settleTarget(
+            revealFraction: revealFraction,
+            flickPixels: flickPixels,
+            maxSlide: maxSlide
+        )
+    }
+
+    static func settleAnimation(initialVelocity: CGFloat) -> Animation {
+        PanelDrawerPhysics.settleAnimation(initialVelocity: initialVelocity)
+    }
+
+    static func panelSlideAnimation(initialVelocity: CGFloat = 0) -> Animation {
+        PanelDrawerPhysics.panelSlideAnimation(initialVelocity: initialVelocity)
+    }
+}
